@@ -1,0 +1,9 @@
+regexeng
+*~
+*.exe
+*.map
+*.obj
+*.o
+*.def
+*.trace
+*.log

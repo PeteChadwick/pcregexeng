@@ -67,7 +67,18 @@ void main()
    for( int testNum=0; testNum<regexStrings.length; ++testNum )
    {
        int numLoops = repetitions[testNum];
-       writefln( "Loops: %s Text length: %s", numLoops, regexTextToMatch[testNum].length );
+       string textToMatch = regexTextToMatch[testNum];
+       double charsProced = numLoops*textToMatch.length; 
+       double factor = (1024*1024)/charsProced;
+       writeln();
+       writefln( "Regex: '%s'", regexStrings[testNum] );
+       writefln( "Iterations: %s", numLoops );
+       writefln( "Text length: %s", textToMatch.length  );
+       
+       if ( textToMatch.length > 50 )
+           writefln( "Text: %s...", textToMatch[0..50] );
+       else
+           writefln( "Text: %s", textToMatch );
 
        auto re = regex( regexStrings[testNum] );
        auto startTime = clock();
@@ -78,8 +89,10 @@ void main()
 	   assert( m );
        }
        auto endTime = clock();
-       writefln( "lockstep  (%s): %s ticks (%s)", testName[testNum], endTime-startTime, m[0] );
-       
+       auto ticks = endTime-startTime;
+       writefln( "lockstep  (%s): %s ticks  %s ticks/MB (%s)",
+                 testName[testNum],ticks, ticks*factor, m[0] );
+
        auto btre = btregex( regexStrings[testNum] );
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
@@ -89,7 +102,9 @@ void main()
        }
        endTime = clock();
        
-       writefln( "backtrack (%s): %s ticks (%s)", testName[testNum], endTime-startTime, m[0] );
+       ticks = endTime-startTime;
+       writefln( "backtrack (%s): %s ticks %s ticks/MB (%s)",
+                 testName[testNum], ticks, ticks*factor, m[0] );
        
        startTime = clock();
        auto stdre = std.regex.regex( regexStrings[testNum] );
@@ -98,8 +113,10 @@ void main()
 	   std.regex.match( regexTextToMatch[testNum], stdre );
        }
        endTime = clock();
-
-       writefln( "std.regex (%s): %s ticks", testName[testNum], endTime-startTime  );
+       
+       ticks = endTime-startTime;
+       writefln( "std.regex (%s): %s ticks %s ticks/MB",
+                 testName[testNum], ticks, ticks*factor  );
    }
 }
 

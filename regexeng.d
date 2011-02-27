@@ -1010,10 +1010,8 @@ struct RegexParser
             }
             else if ( c == '\\' )
             {
-                // TODO: Handle escaped characters
-                
                 c = decode( pattern, end );
-                AddSpan( charRanges, Span!dchar( c, c ) );
+		parseEscapedChar( c, charRanges, reFlags );
             }
             else
                 AddSpan( charRanges, Span!dchar( c, c ) );
@@ -1169,7 +1167,74 @@ struct RegexParser
         return end;
     }
 
-    // return a list of spans instead so we can use it in a set?
+    // Add ranges to ranges in a set
+    void parseEscapedChar( dchar escChar, ref Span!dchar[] charRanges, RegexFlags reFlags )
+    {
+        switch( escChar )
+        {
+        case 'd':
+	    AddSpan( charRanges, Span!dchar( '0', '9' ) );
+	    break;
+        case 'D':
+	    AddSpan( charRanges, Span!dchar( '0'-1, '9'+1 ) );
+            break;
+        case 's':
+	    AddSpan( charRanges, Span!dchar( '\t', '\t' ) );
+	    AddSpan( charRanges, Span!dchar( '\n', '\n' ) );
+	    AddSpan( charRanges, Span!dchar( '\f', '\f' ) );
+	    AddSpan( charRanges, Span!dchar( '\r', '\r' ) );
+            break;
+        case 'w':
+	    AddSpan( charRanges, Span!dchar( '0', '9' ) );
+	    AddSpan( charRanges, Span!dchar( 'A', 'Z' ) );
+	    AddSpan( charRanges, Span!dchar( 'a', 'z' ) );
+            break;
+        case 'W':
+	    AddSpan( charRanges, Span!dchar( '0'-1, '9'+1 ) );
+	    AddSpan( charRanges, Span!dchar( 'A'-1, 'Z'+1 ) );
+	    AddSpan( charRanges, Span!dchar( 'a'-1, 'z'+1 ) );
+            break;
+            
+                
+            // Single characters
+        default:
+            switch ( escChar )
+            {
+            case 'a':
+                escChar = 007;
+                break;
+            case 'f':
+                escChar = 014;
+                break;
+            case 't':
+                escChar = 011;
+                break;
+            case 'n':
+                escChar = 012;
+                break;
+            case 'r':
+                escChar = 015;
+                break;
+            case 'v':
+                escChar = 013;
+                break;
+
+            default:
+                ; // escChar unmodified
+            }
+
+            if ( reFlags.CaseInsensitive )
+            {
+		AddSpan( charRanges, Span!dchar( tolower(escChar), tolower(escChar) ) );
+		AddSpan( charRanges, Span!dchar( toupper(escChar), toupper(escChar) ) );
+            }
+            else
+            {
+		AddSpan( charRanges, Span!dchar( escChar, escChar ) );
+            }
+        }
+    }
+
     void parseEscapedChar( dchar escChar, RegexFlags reFlags )
     {
         switch( escChar )
@@ -2013,8 +2078,7 @@ unittest
     assert( regex("abc(.*)").match( "abc" )[1] == "" );
     assert( btregex("abc(.*)").match( "abc" )[1] == "" );
     // 5523
-    // TODO: Don't handle escaped characters in a set yet
-    //assert( regex( `([\s_]|sec)` ).match( "sec" )[0] == "sec" );
+    assert( regex( `([\s_]|sec)` ).match( "sec" )[0] == "sec" );
 
     enum string email =
         r"([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})";

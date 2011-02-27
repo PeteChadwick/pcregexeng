@@ -18,60 +18,88 @@ void main()
        "a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaaaaa";
    enum string pathalogicalStr = "aaaaaaaaaaaaaaaaaa";
 
-   int numLoops = 1_000_000;
-
-   auto re = regex( email );
-   auto startTime = clock();
-   Match!string m;
-   for( int i=0; i<numLoops; ++i )
+   // Text prefix that might match
+   string textPrefix;
+   for( int i=0; i<10_000; ++i )
    {
-       m = re.match( emailStr );
-       assert( m );
+       textPrefix ~= "not-an-email-address ";
    }
-   auto endTime = clock();
-   writefln( "lockstep: %s ticks (%s)", endTime-startTime, m[0] );
 
-   auto btre = btregex( email );
-   startTime = clock();
-   for( int i=0; i<numLoops; ++i )
+   // Text prefix that doesn't match at all
+   char[] textPrefix2;
+   textPrefix2.length = 1024*1024;
+   textPrefix2[] = '|';
+
+   string[] testName = 
+       [
+	   "Email",
+	   "Email prefix 1",
+	   "Email prefix 2",
+	   "Pathalogical"
+	   ];
+
+   string[] regexStrings =
+       [
+	   email,
+	   email,
+	   email,
+	   pathalogical
+	   ];
+
+   string[] regexTextToMatch =
+       [
+       emailStr,
+       textPrefix.idup~emailStr,
+       textPrefix2.idup~emailStr,
+       pathalogicalStr
+	   ];
+
+   int[] repetitions =
+       [
+	   100_000,
+	   10,
+	   10,
+	   1
+	   ];
+
+   string emailStr2 = textPrefix.idup ~ emailStr;
+
+   for( int testNum=0; testNum<regexStrings.length; ++testNum )
    {
-       m = btre.match( emailStr );
-       assert( m );
+       int numLoops = repetitions[testNum];
+       writefln( "Loops: %s Text length: %s", numLoops, regexTextToMatch[testNum].length );
+
+       auto re = regex( regexStrings[testNum] );
+       auto startTime = clock();
+       Match!string m;
+       for( int i=0; i<numLoops; ++i )
+       {
+	   m = re.match( regexTextToMatch[testNum] );
+	   assert( m );
+       }
+       auto endTime = clock();
+       writefln( "lockstep  (%s): %s ticks (%s)", testName[testNum], endTime-startTime, m[0] );
+       
+       auto btre = btregex( regexStrings[testNum] );
+       startTime = clock();
+       for( int i=0; i<numLoops; ++i )
+       {
+	   m = btre.match( regexTextToMatch[testNum] );
+	   assert( m );
+       }
+       endTime = clock();
+       
+       writefln( "backtrack (%s): %s ticks (%s)", testName[testNum], endTime-startTime, m[0] );
+       
+       startTime = clock();
+       auto stdre = std.regex.regex( regexStrings[testNum] );
+       for( int i=0; i<numLoops; ++i )
+       {
+	   std.regex.match( regexTextToMatch[testNum], stdre );
+       }
+       endTime = clock();
+
+       writefln( "std.regex (%s): %s ticks", testName[testNum], endTime-startTime  );
    }
-   endTime = clock();
-
-   writefln( "backtrack: %s ticks (%s)", endTime-startTime, m[0] );
-
-   startTime = clock();
-   auto stdre = std.regex.regex( email );
-   for( int i=0; i<numLoops; ++i )
-   {
-       std.regex.match( emailStr, stdre );
-   }
-   endTime = clock();
-
-   writefln( "std.regex: %s ticks", endTime-startTime,  );
-
-   re = regex( pathalogical );
-   startTime = clock();
-   m = re.match( pathalogicalStr  );
-   assert( m );
-   endTime = clock();
-   writefln( "lockstep pathalogical %s ticks (%s)", endTime-startTime, m[0] );
-
-   btre = btregex( pathalogical );
-   startTime = clock();
-   m = btre.match( pathalogicalStr  );
-   assert( m );
-   endTime = clock();
-   writefln( "backtrack pathalogical %s ticks (%s)", endTime-startTime, m[0] );
-
-   stdre = std.regex.regex( pathalogical );
-   startTime = clock();
-   std.regex.match( pathalogicalStr, stdre );
-   endTime = clock();
-
-   writefln( "std.regex pathalogical %s ticks", endTime-startTime );
-
 }
 

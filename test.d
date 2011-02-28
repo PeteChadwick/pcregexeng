@@ -32,19 +32,19 @@ void main()
 
    string[] testName = 
        [
-	   "Email",
-	   "Email prefix 1",
-	   "Email prefix 2",
-	   "Pathalogical"
-	   ];
+           "Email",
+           "Email prefix 1",
+           "Email prefix 2",
+           "Pathalogical"
+           ];
 
    string[] regexStrings =
        [
-	   email,
-	   email,
-	   email,
-	   pathalogical
-	   ];
+           email,
+           email,
+           email,
+           pathalogical
+           ];
 
    string[] regexTextToMatch =
        [
@@ -52,15 +52,15 @@ void main()
        textPrefix.idup~emailStr,
        textPrefix2.idup~emailStr,
        pathalogicalStr
-	   ];
+           ];
 
    int[] repetitions =
        [
-	   100_000,
-	   10,
-	   10,
-	   1
-	   ];
+           100_000,
+           10,
+           10,
+           1
+           ];
 
    string emailStr2 = textPrefix.idup ~ emailStr;
 
@@ -85,8 +85,8 @@ void main()
        Match!string m;
        for( int i=0; i<numLoops; ++i )
        {
-	   m = re.match( regexTextToMatch[testNum] );
-	   assert( m );
+           m = re.match( regexTextToMatch[testNum] );
+           assert( m );
        }
        auto endTime = clock();
        auto ticks = endTime-startTime;
@@ -97,8 +97,8 @@ void main()
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
-	   m = btre.match( regexTextToMatch[testNum] );
-	   assert( m );
+           m = btre.match( regexTextToMatch[testNum] );
+           assert( m );
        }
        endTime = clock();
        
@@ -110,7 +110,7 @@ void main()
        auto stdre = std.regex.regex( regexStrings[testNum] );
        for( int i=0; i<numLoops; ++i )
        {
-	   std.regex.match( regexTextToMatch[testNum], stdre );
+           std.regex.match( regexTextToMatch[testNum], stdre );
        }
        endTime = clock();
        

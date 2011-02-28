@@ -723,20 +723,20 @@ struct RegexParser
             // c : jump a
             // d : ...
         {
-	    bool isGreedy = true;
-	    if ( pattern.length > end+1 && pattern[end+1] == '?' )
-		isGreedy = false;
+            bool isGreedy = true;
+            if ( pattern.length > end+1 && pattern[end+1] == '?' )
+                isGreedy = false;
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
-	    if ( isGreedy )
-	    {
-		splitInst.locPref = progAtomStart;
-		splitInst.locSec = program.length + InstJump.sizeof;
-	    }
-	    else
-	    {
-		splitInst.locSec = progAtomStart;
-		splitInst.locPref = program.length + InstJump.sizeof;
-	    }
+            if ( isGreedy )
+            {
+                splitInst.locPref = progAtomStart;
+                splitInst.locSec = program.length + InstJump.sizeof;
+            }
+            else
+            {
+                splitInst.locSec = progAtomStart;
+                splitInst.locPref = program.length + InstJump.sizeof;
+            }
             program = program[0..progAtomStart]
                 ~ splitInstBuf
                 ~ program[progAtomStart..$];
@@ -751,29 +751,29 @@ struct RegexParser
             instJump.loc = progAtomStart; // Where split will now be
 
             end += 1;
-	    if ( !isGreedy )
-		end += 1;
+            if ( !isGreedy )
+                end += 1;
         }
         else if ( pattern[end] == '+' )
             // a : atom
             // b : split a, c
             // c : ...
         {
-	    bool isGreedy = true;
-	    if ( pattern.length > end+1 && pattern[end+1] == '?' )
-		isGreedy = false;
+            bool isGreedy = true;
+            if ( pattern.length > end+1 && pattern[end+1] == '?' )
+                isGreedy = false;
 
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
-	    if ( isGreedy )
-	    {
-		splitInst.locPref = progAtomStart;
-		splitInst.locSec = program.length + InstSplit.sizeof;
-	    }
-	    else
-	    {
-		splitInst.locSec = progAtomStart;
-		splitInst.locPref = program.length + InstSplit.sizeof;
-	    }
+            if ( isGreedy )
+            {
+                splitInst.locPref = progAtomStart;
+                splitInst.locSec = program.length + InstSplit.sizeof;
+            }
+            else
+            {
+                splitInst.locSec = progAtomStart;
+                splitInst.locPref = program.length + InstSplit.sizeof;
+            }
             program ~= splitInstBuf;
 
             end += 1;
@@ -1037,7 +1037,7 @@ struct RegexParser
             else if ( c == '\\' )
             {
                 c = decode( pattern, end );
-		parseEscapedChar( c, charRanges, reFlags );
+                parseEscapedChar( c, charRanges, reFlags );
             }
             else
                 AddSpan( charRanges, Span!dchar( c, c ) );
@@ -1199,26 +1199,26 @@ struct RegexParser
         switch( escChar )
         {
         case 'd':
-	    AddSpan( charRanges, Span!dchar( '0', '9' ) );
-	    break;
+            AddSpan( charRanges, Span!dchar( '0', '9' ) );
+            break;
         case 'D':
-	    AddSpan( charRanges, Span!dchar( '0'-1, '9'+1 ) );
+            AddSpan( charRanges, Span!dchar( '0'-1, '9'+1 ) );
             break;
         case 's':
-	    AddSpan( charRanges, Span!dchar( '\t', '\t' ) );
-	    AddSpan( charRanges, Span!dchar( '\n', '\n' ) );
-	    AddSpan( charRanges, Span!dchar( '\f', '\f' ) );
-	    AddSpan( charRanges, Span!dchar( '\r', '\r' ) );
+            AddSpan( charRanges, Span!dchar( '\t', '\t' ) );
+            AddSpan( charRanges, Span!dchar( '\n', '\n' ) );
+            AddSpan( charRanges, Span!dchar( '\f', '\f' ) );
+            AddSpan( charRanges, Span!dchar( '\r', '\r' ) );
             break;
         case 'w':
-	    AddSpan( charRanges, Span!dchar( '0', '9' ) );
-	    AddSpan( charRanges, Span!dchar( 'A', 'Z' ) );
-	    AddSpan( charRanges, Span!dchar( 'a', 'z' ) );
+            AddSpan( charRanges, Span!dchar( '0', '9' ) );
+            AddSpan( charRanges, Span!dchar( 'A', 'Z' ) );
+            AddSpan( charRanges, Span!dchar( 'a', 'z' ) );
             break;
         case 'W':
-	    AddSpan( charRanges, Span!dchar( '0'-1, '9'+1 ) );
-	    AddSpan( charRanges, Span!dchar( 'A'-1, 'Z'+1 ) );
-	    AddSpan( charRanges, Span!dchar( 'a'-1, 'z'+1 ) );
+            AddSpan( charRanges, Span!dchar( '0'-1, '9'+1 ) );
+            AddSpan( charRanges, Span!dchar( 'A'-1, 'Z'+1 ) );
+            AddSpan( charRanges, Span!dchar( 'a'-1, 'z'+1 ) );
             break;
             
                 
@@ -1251,12 +1251,12 @@ struct RegexParser
 
             if ( reFlags.CaseInsensitive )
             {
-		AddSpan( charRanges, Span!dchar( tolower(escChar), tolower(escChar) ) );
-		AddSpan( charRanges, Span!dchar( toupper(escChar), toupper(escChar) ) );
+                AddSpan( charRanges, Span!dchar( tolower(escChar), tolower(escChar) ) );
+                AddSpan( charRanges, Span!dchar( toupper(escChar), toupper(escChar) ) );
             }
             else
             {
-		AddSpan( charRanges, Span!dchar( escChar, escChar ) );
+                AddSpan( charRanges, Span!dchar( escChar, escChar ) );
             }
         }
     }

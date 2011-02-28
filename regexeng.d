@@ -64,6 +64,7 @@ private // Module only stuff
     // bitfields and share space with stateNumber. stateNumber can
     // probably be 16 bits or less?
 
+    // TODO: Word boundaries
     enum REInst
     {
         Char,
@@ -722,9 +723,20 @@ struct RegexParser
             // c : jump a
             // d : ...
         {
+	    bool isGreedy = true;
+	    if ( pattern.length > end+1 && pattern[end+1] == '?' )
+		isGreedy = false;
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
-            splitInst.locPref = progAtomStart;
-            splitInst.locSec = program.length + InstJump.sizeof;
+	    if ( isGreedy )
+	    {
+		splitInst.locPref = progAtomStart;
+		splitInst.locSec = program.length + InstJump.sizeof;
+	    }
+	    else
+	    {
+		splitInst.locSec = progAtomStart;
+		splitInst.locPref = program.length + InstJump.sizeof;
+	    }
             program = program[0..progAtomStart]
                 ~ splitInstBuf
                 ~ program[progAtomStart..$];
@@ -739,15 +751,29 @@ struct RegexParser
             instJump.loc = progAtomStart; // Where split will now be
 
             end += 1;
+	    if ( !isGreedy )
+		end += 1;
         }
         else if ( pattern[end] == '+' )
             // a : atom
             // b : split a, c
             // c : ...
         {
+	    bool isGreedy = true;
+	    if ( pattern.length > end+1 && pattern[end+1] == '?' )
+		isGreedy = false;
+
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
-            splitInst.locPref = progAtomStart;
-            splitInst.locSec = program.length + InstSplit.sizeof;
+	    if ( isGreedy )
+	    {
+		splitInst.locPref = progAtomStart;
+		splitInst.locSec = program.length + InstSplit.sizeof;
+	    }
+	    else
+	    {
+		splitInst.locSec = progAtomStart;
+		splitInst.locPref = program.length + InstSplit.sizeof;
+	    }
             program ~= splitInstBuf;
 
             end += 1;
@@ -2099,4 +2125,9 @@ unittest
 
     btre = btregex( "(?:(?i)[ab]b)(?:.)b[ab]" );
     assert( btre.match( "ABoba" ).length == 1 );
+
+    assert( regex( "<.*>" ).match( "<one><two><three>" )[0] == "<one><two><three>" );
+    assert( btregex( "<.*>" ).match( "<one><two><three>" )[0] == "<one><two><three>" );
+    assert( regex( "<.*?>" ).match( "<one><two><three>" )[0] == "<one>" );
+    assert( btregex( "<.*?>" ).match( "<one><two><three>" )[0] == "<one>" );
 }

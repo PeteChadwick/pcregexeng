@@ -27,18 +27,6 @@ import std.format;
 import std.ctype;
 
 /*
-  Notes:
-  Instead of Set and NegSet turn [ABC1-9] into
-  
-  CHAR(A)|CHAR(B)|CHAR(C)|CHARRANGE(1-9)
-
-  What about negation? Calculate the inverse range
-  [^A] = CHARRANGE(0..A-1)|CHARRANGE(A+1..$)
-  [^AB] = CHARANGE(0..A-1)|(CHARRANGE(B+1..$)
-  
- */
-
-/*
   Parser
 
   Notes:
@@ -64,7 +52,6 @@ private // Module only stuff
     // bitfields and share space with stateNumber. stateNumber can
     // probably be 16 bits or less?
 
-    // TODO: Word boundaries
     enum REInst
     {
         Char,

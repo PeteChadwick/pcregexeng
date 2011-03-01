@@ -353,6 +353,25 @@ private // Module only stuff
         SubSpan( spans2, dspan( '5', '8' ) );
         assert( spans2 == [ dspan( '0', '2' ), dspan( '9', '9' ) ] );
     }
+
+
+    bool isWordChar(String)( String s, size_t charPos )
+    {
+        if ( charPos == size_t.max )
+            return false;
+        if ( charPos >= s.length )
+            return false;
+        
+        dchar c = decode( s, charPos );
+        
+        if ( c >= '0' && c <= '9' ||
+             c >= 'A' && c <= 'Z' ||
+             c >= 'a' && c <= 'z' ||
+             c == '_' )
+            return true;
+        else
+            return false;
+    }
 }
 
 void printProgram( byte[] program )
@@ -1640,30 +1659,12 @@ public class BackTrackEngine
             case REInst.WordBoundary:
             case REInst.NotWordBoundary:
                 bool result=false;
-
-                bool isWordChar( size_t charPos )
-                {
-                    if ( charPos == size_t.max )
-                        return false;
-                    if ( charPos >= s.length )
-                        return false;
-
-                    dchar c = decode( s, charPos );
-
-                    if ( c >= '0' && c <= '9' ||
-                         c >= 'A' && c <= 'Z' ||
-                         c >= 'a' && c <= 'z' ||
-                         c == '_' )
-                        return true;
-                    else
-                        return false;
-                }
                         
-                if( isWordChar( prevSPos ) &&
-                    !isWordChar( sPos ) )
+                if( isWordChar( s, prevSPos ) &&
+                    !isWordChar( s, sPos ) )
                     result = true;
-                else if ( !isWordChar( prevSPos ) &&
-                          isWordChar( sPos ) )
+                else if ( !isWordChar( s, prevSPos ) &&
+                          isWordChar( s, sPos ) )
                     result = true;
                         
                 if ( inst.type == REInst.NotWordBoundary )
@@ -1830,29 +1831,11 @@ public class LockStepEngine
                     case REInst.NotWordBoundary:
                         bool result=false;
 
-                        bool isWordChar( size_t charPos )
-                        {
-                            if ( charPos == size_t.max )
-                                return false;
-                            if ( charPos >= s.length )
-                                return false;
-
-                            dchar c = decode( s, charPos );
-
-                            if ( c >= '0' && c <= '9' ||
-                                 c >= 'A' && c <= 'Z' ||
-                                 c >= 'a' && c <= 'z' ||
-                                 c == '_' )
-                                return true;
-                            else
-                                return false;
-                        }
-                        
-                        if( isWordChar( _prevGeneration ) &&
-                            !isWordChar( _currentGeneration ) )
+                        if( isWordChar( s, _prevGeneration ) &&
+                            !isWordChar( s, _currentGeneration ) )
                             result = true;
-                        else if ( !isWordChar( _prevGeneration ) &&
-                                  isWordChar( _currentGeneration ) )
+                        else if ( !isWordChar( s, _prevGeneration ) &&
+                                  isWordChar( s, _currentGeneration ) )
                             result = true;
                         
                         if ( inst.type == REInst.NotWordBoundary )

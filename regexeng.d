@@ -1315,10 +1315,10 @@ struct RegexParser
             parseSet( "[\t\n\f\r]", reFlags );
             break;
         case 'w':
-            parseSet( "[0-9A-Za-z]", reFlags );
+            parseSet( "[0-9A-Za-z_]", reFlags );
             break;
         case 'W':
-            parseSet( "[^0-9A-Za-z]", reFlags );
+            parseSet( "[^0-9A-Za-z_]", reFlags );
             break;
         case 'b':
             mixin( MakeREInst( "InstWordBoundary", "wbInst" ) );
@@ -1665,7 +1665,8 @@ public class BackTrackEngine
 
                     if ( c >= '0' && c <= '9' ||
                          c >= 'A' && c <= 'Z' ||
-                         c >= 'a' && c <= 'z' )
+                         c >= 'a' && c <= 'z' ||
+                         c == '_' )
                         return true;
                     else
                         return false;
@@ -1853,7 +1854,8 @@ public class LockStepEngine
 
                             if ( c >= '0' && c <= '9' ||
                                  c >= 'A' && c <= 'Z' ||
-                                 c >= 'a' && c <= 'z' )
+                                 c >= 'a' && c <= 'z' ||
+                                 c == '_' )
                                 return true;
                             else
                                 return false;

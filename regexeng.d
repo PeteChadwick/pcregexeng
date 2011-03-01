@@ -78,7 +78,9 @@ private // Module only stuff
         Jump,
         Match,
         BOL,
-        EOL
+        EOL,
+        WordBoundary,
+        NotWordBoundary
     }
 
     struct Inst
@@ -131,6 +133,18 @@ private // Module only stuff
     struct InstEOL
     {
         Inst inst = { REInst.EOL, 0 };
+        alias inst this;
+    }
+
+    struct InstWordBoundary
+    {
+        Inst inst = { REInst.WordBoundary, 0 };
+        alias inst this;
+    }
+
+    struct InstNotWordBoundary
+    {
+        Inst inst = { REInst.NotWordBoundary, 0 };
         alias inst this;
     }
 
@@ -449,6 +463,16 @@ void printProgram( byte[] program )
             writefln( "EOL" );
             pos += InstEOL.sizeof;
             break;
+
+        case REInst.WordBoundary:
+            writefln( "Word Boundary" );
+            pos += InstWordBoundary.sizeof;
+            break;
+
+        case REInst.NotWordBoundary:
+            writefln( "Not Word Boundary" );
+            pos += InstNotWordBoundary.sizeof;
+            break;
         }
     }
 }
@@ -510,6 +534,14 @@ void enumerateStates( byte[] program, out size_t numStates )
 
         case REInst.EOL:
             pos += InstEOL.sizeof;
+            break;
+
+        case REInst.WordBoundary:
+            pos += InstWordBoundary.sizeof;
+            break;
+
+        case REInst.NotWordBoundary:
+            pos += InstNotWordBoundary.sizeof;
             break;
         }
     }
@@ -638,6 +670,14 @@ struct RegexParser
 
             case REInst.EOL:
                 pos += InstEOL.sizeof;
+                break;
+
+            case REInst.WordBoundary:
+                pos += InstWordBoundary.sizeof;
+                break;
+
+            case REInst.NotWordBoundary:
+                pos += InstNotWordBoundary.sizeof;
                 break;
             }
         }
@@ -1280,6 +1320,14 @@ struct RegexParser
         case 'W':
             parseSet( "[^0-9A-Za-z]", reFlags );
             break;
+        case 'b':
+            mixin( MakeREInst( "InstWordBoundary", "wbInst" ) );
+            program ~= wbInstBuf;
+            break;
+        case 'B':
+            mixin( MakeREInst( "InstNotWordBoundary", "nwbInst" ) );
+            program ~= nwbInstBuf;
+            break;
             
                 
             // Single characters
@@ -1462,7 +1510,7 @@ public class BackTrackEngine
         _captures.length = re.numCaptures*2;
     }
 
-    int execute(String)( size_t pc, size_t sPos, String s )
+    int execute(String)( size_t pc, size_t sPos, size_t prevSPos, String s )
     {
         auto program = _re.program;
 
@@ -1470,12 +1518,13 @@ public class BackTrackEngine
         {
             Inst* inst = cast(Inst*)&program[pc];
 
-            switch( inst.type )
+            final switch( inst.type )
             {
             case REInst.Char:
                 if ( sPos == s.length )
                     return 0;
                 // get next character and advance sPos
+                prevSPos = sPos;
                 dchar thisChar = decode( s, sPos );
                 auto instChar = cast(InstChar*)inst;
                 if ( instChar.c != thisChar )
@@ -1488,6 +1537,7 @@ public class BackTrackEngine
                 if ( sPos == s.length )
                     return 0;
                 // get next character and advance sPos
+                prevSPos = sPos;
                 dchar thisChar = decode( s, sPos );
                 auto instIChar = cast(InstIChar*)inst;
                 if ( instIChar.c != tolower(thisChar) )
@@ -1501,6 +1551,7 @@ public class BackTrackEngine
                 if ( sPos == s.length )
                     return 0;
                 // get next character and advance sPos
+                prevSPos = sPos;
                 dchar thisChar = decode( s, sPos );
                 pc += InstAnyChar.sizeof;
 
@@ -1511,6 +1562,7 @@ public class BackTrackEngine
                 if ( sPos == s.length )
                     return 0;
                 // get next character and advance sPos
+                prevSPos = sPos;
                 dchar thisChar = decode( s, sPos );
 
                 if ( ! ( thisChar >= instCharRange.span.start &&
@@ -1526,6 +1578,7 @@ public class BackTrackEngine
                 if ( sPos == s.length )
                     return 0;
                 // get next character and advance sPos
+                prevSPos = sPos;
                 dchar thisChar = tolower( decode( s, sPos ) );
 
                 if ( ! ( thisChar >= instICharRange.span.start &&
@@ -1541,6 +1594,7 @@ public class BackTrackEngine
                 if ( sPos == s.length )
                     return 0;
                 // get next character and advance sPos
+                prevSPos = sPos;
                 dchar thisChar = decode( s, sPos );
 
                 if ( !(*instCharBitmap)[thisChar] )
@@ -1556,7 +1610,7 @@ public class BackTrackEngine
                 size_t oldCapture = _captures[instSave.num];
                 _captures[instSave.num] = sPos;
                 pc += InstSave.sizeof;
-                if ( execute( pc, sPos, s ) )
+                if ( execute( pc, sPos, prevSPos, s ) )
                     return 1;
 
                 // Restore old capture if thread has failed
@@ -1567,7 +1621,7 @@ public class BackTrackEngine
 
             case REInst.Split:
                 auto instSplit = cast(InstSplit*)inst;
-                if ( execute( instSplit.locPref, sPos, s ) )
+                if ( execute( instSplit.locPref, sPos, prevSPos, s ) )
                     return 1;
                 pc = instSplit.locSec;
 
@@ -1595,6 +1649,43 @@ public class BackTrackEngine
 
                 pc += InstEOL.sizeof;
                 break;
+
+            case REInst.WordBoundary:
+            case REInst.NotWordBoundary:
+                bool result=false;
+
+                bool isWordChar( size_t charPos )
+                {
+                    if ( charPos == size_t.max )
+                        return false;
+                    if ( charPos >= s.length )
+                        return false;
+
+                    dchar c = decode( s, charPos );
+
+                    if ( c >= '0' && c <= '9' ||
+                         c >= 'A' && c <= 'Z' ||
+                         c >= 'a' && c <= 'z' )
+                        return true;
+                    else
+                        return false;
+                }
+                        
+                if( isWordChar( prevSPos ) &&
+                    !isWordChar( sPos ) )
+                    result = true;
+                else if ( !isWordChar( prevSPos ) &&
+                          isWordChar( sPos ) )
+                    result = true;
+                        
+                if ( inst.type == REInst.NotWordBoundary )
+                    result = !result;
+
+                if ( !result )
+                    return 0;
+
+                pc += InstEOL.sizeof;
+                break;
             }
         }
 
@@ -1609,7 +1700,7 @@ public class BackTrackEngine
 
         Match!String matchData;
 
-        if( execute( 0, 0, s ) )
+        if( execute( 0, 0, size_t.max, s ) )
         {
             matchData = Match!String( _captures, s[_captures[0].._captures[1]] );
         }
@@ -1641,6 +1732,7 @@ public class LockStepEngine
     private Threads _executingThreads;
     private size_t _stringPosition;
     private size_t _currentGeneration;
+    private size_t _prevGeneration; // used for decoding previous character for word boundary
     private size_t[] _emptyCaptures;
     private size_t[] _stateGenerations;
     private Regex _re;
@@ -1746,7 +1838,43 @@ public class LockStepEngine
                             _executingThreads.pop();
                         break;
 
+                    case REInst.WordBoundary:
+                    case REInst.NotWordBoundary:
+                        bool result=false;
 
+                        bool isWordChar( size_t charPos )
+                        {
+                            if ( charPos == size_t.max )
+                                return false;
+                            if ( charPos >= s.length )
+                                return false;
+
+                            dchar c = decode( s, charPos );
+
+                            if ( c >= '0' && c <= '9' ||
+                                 c >= 'A' && c <= 'Z' ||
+                                 c >= 'a' && c <= 'z' )
+                                return true;
+                            else
+                                return false;
+                        }
+                        
+                        if( isWordChar( _prevGeneration ) &&
+                            !isWordChar( _currentGeneration ) )
+                            result = true;
+                        else if ( !isWordChar( _prevGeneration ) &&
+                                  isWordChar( _currentGeneration ) )
+                            result = true;
+                        
+                        if ( inst.type == REInst.NotWordBoundary )
+                            result = !result;
+
+                        if ( result )
+                            _executingThreads.pc = pc + InstWordBoundary.sizeof;
+                        else
+                            _executingThreads.pop();
+
+                        break;
                     }
                 }
                 else // Pop instruction we've already done
@@ -1769,6 +1897,7 @@ public class LockStepEngine
     {
         _stateGenerations[] = size_t.max;
         _emptyCaptures[] = size_t.max;
+        _prevGeneration=size_t.max;
         _currentGeneration=0;
         _stringPosition=0;
         _currentThreads.clear();
@@ -1781,12 +1910,15 @@ public class LockStepEngine
 
         getConsumingThreads( s, captures );
 
+        dchar prevChar;
+
         size_t nextCharIdx = 0;
         while( _consumingThreads.length > 0 && nextCharIdx < s.length )
         {
             _currentThreads.clear();
             
             dchar thisChar = decode( s, nextCharIdx );
+            _prevGeneration = _currentGeneration;
             _currentGeneration = nextCharIdx;
 
 
@@ -1845,6 +1977,8 @@ public class LockStepEngine
                 case REInst.BOL:
                 case REInst.EOL:
                 case REInst.Match:
+                case REInst.WordBoundary:
+                case REInst.NotWordBoundary:
                     throw new Exception( "Unexpected instruction" );
                 }
             }
@@ -2079,6 +2213,10 @@ unittest
     assert( btregex( "ab$" ).match( "leadingstuffab" ) );
     assert( !regex( "^ab$" ).match( "leadingstuffab" ) );
     assert( !btregex( "^ab$" ).match( "leadingstuffab" ) );
+    assert( regex( r"^\bZ\b \bY\BX\b \bW\BV\BU\b$" ).match( "Z YX WVU" ) );
+    assert( btregex( r"^\bZ\b \bY\BX\b \bW\BV\BU\b$" ).match( "Z YX WVU" ) );
+    assert( !regex( r"^X\bY$" ).match( "XY" ) );
+    assert( !btregex( r"^X\bY$" ).match( "XY" ) );
 
     // browsing bugzilla for dmd regex issues
     // 5511
@@ -2094,11 +2232,13 @@ unittest
     assert(m[1] == "");
     assert(m[2] == "");
     assert(m[3] == "b");
+
     // 2108
     assert( regex( "<packet.*/packet>" ).match( "<packet>text</packet><packet>text</packet>" )[0] ==
             "<packet>text</packet><packet>text</packet>" );
     assert( btregex( "<packet.*/packet>" ).match( "<packet>text</packet><packet>text</packet>" )[0] ==
             "<packet>text</packet><packet>text</packet>" );
+
 
     // 5019
     assert( regex("abc(.*)").match( "abc" )[1] == "" );

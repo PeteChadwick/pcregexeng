@@ -69,12 +69,15 @@ private // Module only stuff
         BOT,
         EOT,
         WordBoundary,
-        NotWordBoundary
+        NotWordBoundary,
+        LookAround
     }
 
     struct Inst
     {
         REInst type;
+        // Statenumber is used to keep track of generations, it's not
+        // used by the backtracking engine
         size_t stateNumber;
     }
 
@@ -147,6 +150,14 @@ private // Module only stuff
     {
         Inst inst = { REInst.NotWordBoundary, 0 };
         alias inst this;
+    }
+
+    struct InstLookAround
+    {
+        Inst inst = { REInst.LookAround, 0 };
+        alias inst this;
+        bool ahead = true;
+        bool positive = true;
     }
 
     struct InstCharBitmap
@@ -518,6 +529,11 @@ void printProgram( byte[] program )
             writefln( "Not Word Boundary" );
             pos += InstNotWordBoundary.sizeof;
             break;
+
+        case REInst.LookAround:
+            writefln( "LookAround" );
+            pos += InstLookAround.sizeof;
+            break;
         }
     }
 }
@@ -595,6 +611,10 @@ void enumerateStates( byte[] program, out size_t numStates )
 
         case REInst.NotWordBoundary:
             pos += InstNotWordBoundary.sizeof;
+            break;
+
+        case REInst.LookAround:
+            pos += InstLookAround.sizeof;
             break;
         }
     }
@@ -741,6 +761,11 @@ struct RegexParser
             case REInst.NotWordBoundary:
                 pos += InstNotWordBoundary.sizeof;
                 break;
+
+            case REInst.LookAround:
+                pos += InstLookAround.sizeof;
+                break;
+
             }
         }
     }
@@ -1019,6 +1044,8 @@ struct RegexParser
 
         // TODO: Use flags instead of bools?
         bool capturingGroup = true;
+        bool lookAroundGroup = false;
+        bool positiveLookAround = true;
 
         RegexFlags newReFlags = reFlags;
 
@@ -1030,14 +1057,15 @@ struct RegexParser
             // to set the initial flags e.g. Regex( "Bob", "i" );
             dchar c = decode( pattern, newEnd );
             bool flagMode = true;
-            if ( c == '-' )
-            {
-                flagMode = false;
-                c = decode( pattern, newEnd );
-            }
 
-            while( c != ':' && c != ')' )
+            while( c != ':' && c != ')' && c != '=' && c != '!' )
             {
+                if ( c == '-' )
+                {
+                    flagMode = false;
+                    c = decode( pattern, newEnd );
+                }
+
                 if ( c == 'i' )
                     newReFlags.CaseInsensitive = flagMode;
 
@@ -1049,6 +1077,18 @@ struct RegexParser
 
             if ( c == ':' )
                 capturingGroup = false;
+            else if ( c == '=' ) // lookahead
+            {
+                capturingGroup = false;
+                lookAroundGroup = true;
+                positiveLookAround = true;
+            }
+            else if ( c == '!' ) // negative lookahead
+            {
+                capturingGroup = false;
+                lookAroundGroup = true;
+                positiveLookAround = false;
+            }
             else if ( c == ')' )
             {
                 // Set flags for enclosing scope
@@ -1074,6 +1114,15 @@ struct RegexParser
             ++numCaptures;
         }
 
+        if ( lookAroundGroup )
+        {
+            mixin( MakeREInst( "InstLookAround", "lookAroundInst" ) );
+            lookAroundInst.ahead = true;
+            lookAroundInst.positive = positiveLookAround;
+
+            program ~= lookAroundInstBuf;
+        }
+
         end += parseRegex( pattern[end..$], newReFlags );
         if ( end == pattern.length )
         {
@@ -1093,6 +1142,13 @@ struct RegexParser
             *instSave = InstSave();
             instSave.num = 2*parserCaptureStack[$-1] + 1; // get last pushed capture
             parserCaptureStack.length -= 1; // pop stack
+        }
+
+        if ( lookAroundGroup )
+        {
+            mixin( MakeREInst( "InstMatch", "matchInst" ) );
+
+            program ~= matchInstBuf;
         }
 
         end++;
@@ -1808,6 +1864,14 @@ public class BackTrackEngine
 
                 pc += InstEOL.sizeof;
                 break;
+
+            case REInst.LookAround:
+                pc += InstLookAround.sizeof;
+                auto instLookAround = cast(InstLookAround*)inst;
+                
+                return execute( pc, sPos, prevSPos, s ) == instLookAround.positive;
+
+                break;
             }
         }
 
@@ -2011,6 +2075,9 @@ public class LockStepEngine
                             _executingThreads.pop();
 
                         break;
+
+                    case REInst.LookAround:
+                        throw new Exception( "LookAround not supported by lockstep engine" );
                     }
                 }
                 else // Pop instruction we've already done
@@ -2118,6 +2185,8 @@ public class LockStepEngine
                 case REInst.WordBoundary:
                 case REInst.NotWordBoundary:
                     throw new Exception( "Unexpected instruction" );
+                case REInst.LookAround:
+                    throw new Exception( "LookAround not supported by lockstep engine" );
                 }
             }
             
@@ -2429,4 +2498,8 @@ unittest
     assert( btregex( "[こん]*" ).match( "こんにちは" )[0] == "こん" );
     assert( regex( "[^こん]*$" ).match( "こんにちは" )[0] == "にちは" );
     assert( btregex( "[^こん]*$" ).match( "こんにちは" )[0] == "にちは" );
+
+    // Lookahead tests (only for backtracking engine)
+    assert( btregex( "q(?=u)" ).match( "qu" ) );
+    assert( !btregex( "q(?!u)" ).match( "qu" ) );
 }

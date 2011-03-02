@@ -2421,4 +2421,12 @@ unittest
     assert( staticMatch );
     assert( staticMatch[0] == "yuckyumyuck" );
     assert( staticMatch[1] == "yum" );
+
+    // Non ascii characters
+    assert( regex( "こ(.*)" ).match( "こんにちは" )[1] == "んにちは" );
+    assert( btregex( "こ(.*)" ).match( "こんにちは" )[1] == "んにちは" );
+    assert( regex( "[こん]*" ).match( "こんにちは" )[0] == "こん" );
+    assert( btregex( "[こん]*" ).match( "こんにちは" )[0] == "こん" );
+    assert( regex( "[^こん]*$" ).match( "こんにちは" )[0] == "にちは" );
+    assert( btregex( "[^こん]*$" ).match( "こんにちは" )[0] == "にちは" );
 }

@@ -94,6 +94,7 @@ void main()
                  testName[testNum],ticks, ticks*factor, m[0] );
 
        auto btre = btregex( regexStrings[testNum] );
+
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
@@ -105,6 +106,21 @@ void main()
        ticks = endTime-startTime;
        writefln( "backtrack (%s): %s ticks %s ticks/MB (%s)",
                  testName[testNum], ticks, ticks*factor, m[0] );
+
+       // We know we aren't using more than 4 captures in this test
+       Match!(string,4) staticMatch;
+       startTime = clock();
+       for( int i=0; i<numLoops; ++i )
+       {
+           btre.match( regexTextToMatch[testNum], staticMatch );
+           assert( staticMatch );
+       }
+       endTime = clock();
+       
+       ticks = endTime-startTime;
+       writefln( "staticbt  (%s): %s ticks %s ticks/MB (%s)",
+                 testName[testNum], ticks, ticks*factor, staticMatch[0] );
+
        
        startTime = clock();
        auto stdre = std.regex.regex( regexStrings[testNum] );

@@ -1525,6 +1525,52 @@ struct RegexParser
 
 
 
+// Match could be parameterized on the number of captures if it were
+// known at compile time to avoid dynamic allocation.
+// If the user knows, or knows a maximum number of captures, it can be
+// passed as a template parameter to the regex engine match function,
+// which can use the available space.
+public struct Match(String,int NumCaptures)
+{
+    private String mCaptureString;
+    private size_t mCaptures[NumCaptures] = size_t.max;
+    private size_t mStartMatchOffset;
+
+    bool opCast(T)() if (is(T == bool))
+    {
+        return mCaptures[0] != size_t.max;
+    }
+
+    String opIndex( uint i )
+    {
+        size_t startMatch = mCaptures[0];
+        return mCaptureString[ mCaptures[2*i]-startMatch..mCaptures[2*i+1]-startMatch ];
+    }
+
+    @property size_t length()
+    {
+        return mCaptures.length / 2;
+    }
+
+    @property size_t startMatch()
+    {
+        if ( mCaptures.empty )
+            throw new Exception( "Match has not matched a string" );
+
+        return mCaptures[0];
+    }
+
+    @property size_t endMatch()
+    {
+        if ( mCaptures.empty )
+            throw new Exception( "Match has not matched a string" );
+
+        return mCaptures[1];
+    }
+}
+
+Match!(string,2) testmatch;
+
 public struct Match(String)
 {
     this( size_t captures[], String captureString )
@@ -1548,8 +1594,6 @@ public struct Match(String)
 
     String opIndex( uint i )
     {
-        //return mCaptures[i];
-        //writefln( "%s: i = %s : %s-%s", mCaptureString, i, mCaptures[2*i], mCaptures[2*i+1] );
         size_t startMatch = mCaptures[0];
         return mCaptureString[ mCaptures[2*i]-startMatch..mCaptures[2*i+1]-startMatch ];
     }
@@ -1788,6 +1832,23 @@ public class BackTrackEngine
         }
 
         return matchData;
+    }
+
+    void match(String,MatchType)( String s, ref MatchType match )
+    {
+        auto program = _re.program;
+
+        size_t[] oldCaptures = _captures;
+        
+        // Write captures directly into match
+        _captures = match.mCaptures;
+        if( execute( 0, 0, size_t.max, s ) )
+        {
+            match.mCaptureString = s;
+        }
+
+        // restore _captures
+        _captures = oldCaptures;
     }
 }
 
@@ -2353,4 +2414,11 @@ unittest
     assert( btregex( "(?m)^yum$" ).match( "yuck\nyum\nyuck" ) );
     assert( !regex( "^yum$" ).match( "yuck\nyum\nyuck" ) );
     assert( !btregex( "^yum$" ).match( "yuck\nyum\nyuck" ) );
+
+    Match!(string,2) staticMatch;
+    btregex( ".*(yum).*" ).match( "yuckyumyuck", staticMatch );
+
+    assert( staticMatch );
+    assert( staticMatch[0] == "yuckyumyuck" );
+    assert( staticMatch[1] == "yum" );
 }

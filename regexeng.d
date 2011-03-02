@@ -64,8 +64,10 @@ private // Module only stuff
         Split,
         Jump,
         Match,
-        BOL,
+        BOL, // multiline
         EOL,
+        BOT,
+        EOT,
         WordBoundary,
         NotWordBoundary
     }
@@ -120,6 +122,18 @@ private // Module only stuff
     struct InstEOL
     {
         Inst inst = { REInst.EOL, 0 };
+        alias inst this;
+    }
+
+    struct InstBOT
+    {
+        Inst inst = { REInst.BOT, 0 };
+        alias inst this;
+    }
+    
+    struct InstEOT
+    {
+        Inst inst = { REInst.EOT, 0 };
         alias inst this;
     }
 
@@ -372,6 +386,21 @@ private // Module only stuff
         else
             return false;
     }
+
+    bool isNewLineChar(String)( String s, size_t charPos )
+    {
+        if ( charPos == size_t.max ) // BOT
+            return true;
+        if ( charPos >= s.length ) // EOT
+            return true;
+
+        dchar c = decode( s, charPos );
+        
+        if ( c == '\n' || c == '\r' )
+            return true;
+        
+        return false;
+    }
 }
 
 void printProgram( byte[] program )
@@ -470,6 +499,16 @@ void printProgram( byte[] program )
             pos += InstEOL.sizeof;
             break;
 
+        case REInst.BOT:
+            writefln( "BOT" );
+            pos += InstBOT.sizeof;
+            break;
+
+        case REInst.EOT:
+            writefln( "EOT" );
+            pos += InstEOT.sizeof;
+            break;
+
         case REInst.WordBoundary:
             writefln( "Word Boundary" );
             pos += InstWordBoundary.sizeof;
@@ -542,6 +581,14 @@ void enumerateStates( byte[] program, out size_t numStates )
             pos += InstEOL.sizeof;
             break;
 
+        case REInst.BOT:
+            pos += InstBOT.sizeof;
+            break;
+
+        case REInst.EOT:
+            pos += InstEOT.sizeof;
+            break;
+
         case REInst.WordBoundary:
             pos += InstWordBoundary.sizeof;
             break;
@@ -573,7 +620,8 @@ struct RegexParser
         reFlags.MultiLine = false;
         reFlags.Ungreedy = false;
 
-        // If there is not a BOL at the beginning of the regex, add ungreedy .*
+        // Add ungreedy .* at the beginning to find matches after the
+        // first character
         // a split d, b
         // b anychar
         // c jump a
@@ -676,6 +724,14 @@ struct RegexParser
 
             case REInst.EOL:
                 pos += InstEOL.sizeof;
+                break;
+
+            case REInst.BOT:
+                pos += InstBOT.sizeof;
+                break;
+
+            case REInst.EOT:
+                pos += InstEOT.sizeof;
                 break;
 
             case REInst.WordBoundary:
@@ -984,6 +1040,9 @@ struct RegexParser
             {
                 if ( c == 'i' )
                     newReFlags.CaseInsensitive = flagMode;
+
+                if ( c == 'm' )
+                    newReFlags.MultiLine = flagMode;
 
                 c = decode( pattern, newEnd );
             }
@@ -1414,19 +1473,35 @@ struct RegexParser
             dchar escChar = decode( s, end );
             parseEscapedChar( escChar, reFlags );
         }
-        else if ( c == '^' ) // BOL
+        else if ( c == '^' ) // BOL or BOT
         {
             decode( s, end );
 
-            mixin( MakeREInst( "InstBOL", "bolInst" ) );
-            program ~= bolInstBuf;
+            if ( reFlags.MultiLine )
+            {
+                mixin( MakeREInst( "InstBOL", "bolInst" ) );
+                program ~= bolInstBuf;
+            }
+            else
+            {
+                mixin( MakeREInst( "InstBOT", "botInst" ) );
+                program ~= botInstBuf;
+            }
         }
         else if ( c == '$' )
         {
             decode( s, end );
 
-            mixin( MakeREInst( "InstEOL", "eolInst" ) );
-            program ~= eolInstBuf;
+            if ( reFlags.MultiLine )
+            {
+                mixin( MakeREInst( "InstEOL", "eolInst" ) );
+                program ~= eolInstBuf;
+            }
+            else
+            {
+                mixin( MakeREInst( "InstEOT", "eotInst" ) );
+                program ~= eotInstBuf;
+            }
         }
         else // Character
         {
@@ -1643,13 +1718,27 @@ public class BackTrackEngine
                 return 1;
 
             case REInst.BOL:
-                if ( sPos != 0 )
+                if ( !isNewLineChar( s, prevSPos ) )
                     return 0;
 
                 pc += InstBOL.sizeof;
                 break;
 
             case REInst.EOL:
+                if ( !isNewLineChar( s, sPos ) )
+                    return 0;
+
+                pc += InstEOL.sizeof;
+                break;
+
+            case REInst.BOT:
+                if ( sPos != 0 )
+                    return 0;
+
+                pc += InstBOL.sizeof;
+                break;
+
+            case REInst.EOT:
                 if ( sPos != s.length )
                     return 0;
 
@@ -1813,6 +1902,20 @@ public class LockStepEngine
                         break;
 
                     case REInst.BOL:
+                        if ( isNewLineChar( s, _prevGeneration ) )
+                            _executingThreads.pc = pc + InstBOL.sizeof;
+                        else
+                            _executingThreads.pop();
+                        break;
+
+                    case REInst.EOL:
+                        if ( isNewLineChar( s, _currentGeneration ) )
+                            _executingThreads.pc = pc + InstEOL.sizeof;
+                        else
+                            _executingThreads.pop();
+                        break;
+
+                    case REInst.BOT:
                         // If at beginning of string, increment pc, otherwise pop instruction
                         if ( _currentGeneration == 0 )
                             _executingThreads.pc = pc + InstBOL.sizeof;
@@ -1820,7 +1923,7 @@ public class LockStepEngine
                             _executingThreads.pop();
                         break;
 
-                    case REInst.EOL:
+                    case REInst.EOT:
                         if ( _currentGeneration == s.length )
                             _executingThreads.pc = pc + InstEOL.sizeof;
                         else
@@ -1948,6 +2051,8 @@ public class LockStepEngine
                 case REInst.Jump:
                 case REInst.BOL:
                 case REInst.EOL:
+                case REInst.BOT:
+                case REInst.EOT:
                 case REInst.Match:
                 case REInst.WordBoundary:
                 case REInst.NotWordBoundary:
@@ -2242,4 +2347,10 @@ unittest
     assert( btregex( "<.*>" ).match( "<one><two><three>" )[0] == "<one><two><three>" );
     assert( regex( "<.*?>" ).match( "<one><two><three>" )[0] == "<one>" );
     assert( btregex( "<.*?>" ).match( "<one><two><three>" )[0] == "<one>" );
+
+    // Multi line mode
+    assert( regex( "(?m)^yum$" ).match( "yuck\nyum\nyuck" ) );
+    assert( btregex( "(?m)^yum$" ).match( "yuck\nyum\nyuck" ) );
+    assert( !regex( "^yum$" ).match( "yuck\nyum\nyuck" ) );
+    assert( !btregex( "^yum$" ).match( "yuck\nyum\nyuck" ) );
 }

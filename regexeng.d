@@ -69,7 +69,6 @@ private // Module only stuff
         BOT,
         EOT,
         WordBoundary,
-        NotWordBoundary,
         LookAround
     }
 
@@ -144,12 +143,7 @@ private // Module only stuff
     {
         Inst inst = { REInst.WordBoundary, 0 };
         alias inst this;
-    }
-
-    struct InstNotWordBoundary
-    {
-        Inst inst = { REInst.NotWordBoundary, 0 };
-        alias inst this;
+        bool positiveFlag = true;
     }
 
     struct InstLookAround
@@ -521,17 +515,15 @@ void printProgram( byte[] program )
             break;
 
         case REInst.WordBoundary:
-            writefln( "Word Boundary" );
+            InstWordBoundary* inst = cast(InstWordBoundary*)&program[pos];
+            writefln( "Word Boundary positiveFlag:%s", inst.positiveFlag );
             pos += InstWordBoundary.sizeof;
             break;
 
-        case REInst.NotWordBoundary:
-            writefln( "Not Word Boundary" );
-            pos += InstNotWordBoundary.sizeof;
-            break;
 
         case REInst.LookAround:
-            writefln( "LookAround" );
+            InstLookAround* inst = cast(InstLookAround*)&program[pos];
+            writefln( "LookAround ahead:%s positive:%s", inst.ahead, inst.positive );
             pos += InstLookAround.sizeof;
             break;
         }
@@ -609,10 +601,6 @@ void enumerateStates( byte[] program, out size_t numStates )
             pos += InstWordBoundary.sizeof;
             break;
 
-        case REInst.NotWordBoundary:
-            pos += InstNotWordBoundary.sizeof;
-            break;
-
         case REInst.LookAround:
             pos += InstLookAround.sizeof;
             break;
@@ -679,9 +667,6 @@ struct RegexParser
 
     size_t numCaptures=0;
     size_t[] parserCaptureStack;
-
-    private bool mCaseInsensitiveFlag;
-    
 
     void fixOffsets( byte[] prog, size_t pos, size_t shift )
     {
@@ -756,10 +741,6 @@ struct RegexParser
 
             case REInst.WordBoundary:
                 pos += InstWordBoundary.sizeof;
-                break;
-
-            case REInst.NotWordBoundary:
-                pos += InstNotWordBoundary.sizeof;
                 break;
 
             case REInst.LookAround:
@@ -1446,8 +1427,9 @@ struct RegexParser
             program ~= wbInstBuf;
             break;
         case 'B':
-            mixin( MakeREInst( "InstNotWordBoundary", "nwbInst" ) );
-            program ~= nwbInstBuf;
+            mixin( MakeREInst( "InstWordBoundary", "wbInst" ) );
+            wbInst.positiveFlag = false;
+            program ~= wbInstBuf;
             break;
             
                 
@@ -1846,7 +1828,6 @@ public class BackTrackEngine
                 break;
 
             case REInst.WordBoundary:
-            case REInst.NotWordBoundary:
                 bool result=false;
                         
                 if( isWordChar( s, prevSPos ) &&
@@ -1855,14 +1836,13 @@ public class BackTrackEngine
                 else if ( !isWordChar( s, prevSPos ) &&
                           isWordChar( s, sPos ) )
                     result = true;
-                        
-                if ( inst.type == REInst.NotWordBoundary )
-                    result = !result;
 
-                if ( !result )
+                auto instWordBoundary = cast(InstWordBoundary*)inst;
+
+                if ( result != instWordBoundary.positiveFlag )
                     return 0;
 
-                pc += InstEOL.sizeof;
+                pc += InstWordBoundary.sizeof;
                 break;
 
             case REInst.LookAround:
@@ -2056,7 +2036,6 @@ public class LockStepEngine
                         break;
 
                     case REInst.WordBoundary:
-                    case REInst.NotWordBoundary:
                         bool result=false;
 
                         if( isWordChar( s, _prevGeneration ) &&
@@ -2065,11 +2044,10 @@ public class LockStepEngine
                         else if ( !isWordChar( s, _prevGeneration ) &&
                                   isWordChar( s, _currentGeneration ) )
                             result = true;
-                        
-                        if ( inst.type == REInst.NotWordBoundary )
-                            result = !result;
 
-                        if ( result )
+                        auto instWordBoundary = cast(InstWordBoundary*)inst;
+                        
+                        if ( result == instWordBoundary.positiveFlag )
                             _executingThreads.pc = pc + InstWordBoundary.sizeof;
                         else
                             _executingThreads.pop();
@@ -2183,7 +2161,6 @@ public class LockStepEngine
                 case REInst.EOT:
                 case REInst.Match:
                 case REInst.WordBoundary:
-                case REInst.NotWordBoundary:
                     throw new Exception( "Unexpected instruction" );
                 case REInst.LookAround:
                     throw new Exception( "LookAround not supported by lockstep engine" );

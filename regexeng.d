@@ -152,6 +152,8 @@ private // Module only stuff
         alias inst this;
         bool ahead = true;
         bool positive = true;
+        int distance = 0;
+        size_t jumpLoc = 0;
     }
 
     struct InstCharBitmap
@@ -523,7 +525,7 @@ void printProgram( byte[] program )
 
         case REInst.LookAround:
             InstLookAround* inst = cast(InstLookAround*)&program[pos];
-            writefln( "LookAround ahead:%s positive:%s", inst.ahead, inst.positive );
+            writefln( "LookAround ahead:%s positive:%s distance:%s", inst.ahead, inst.positive, inst.distance );
             pos += InstLookAround.sizeof;
             break;
         }
@@ -617,8 +619,40 @@ struct RegexParser
                    bool, "CaseInsensitive", 1,
                    bool, "MultiLine", 1, // unused
                    bool, "Ungreedy", 1,  // unused
-                   uint, "", 5 ));
+                   bool, "FixedLength", 1, // For lookbehind
+                   uint, "", 4 ));
     }
+
+    int fixedCharStack[];
+    private void sumFixedCharStack()
+    {
+        int sum=0;
+        size_t idx = fixedCharStack.length;
+        while( idx > 0 )
+        {
+            int num = fixedCharStack[idx-1];
+            fixedCharStack.length -= 1; // pop
+
+            if ( num >= 0 )
+                sum += fixedCharStack[idx-1];
+            else
+                break;
+
+            --idx;
+        }
+
+        fixedCharStack ~= sum;
+    }
+
+    private int topFixedCharStack()
+    {
+        if ( fixedCharStack.length ==0 )
+            return 0;
+        else
+            return fixedCharStack[$-1];
+    }
+    
+
 
     // Make flags a default parameter?
     this(String)( String s )
@@ -627,6 +661,8 @@ struct RegexParser
         reFlags.CaseInsensitive = false;
         reFlags.MultiLine = false;
         reFlags.Ungreedy = false;
+
+        fixedCharStack = [];
 
         // Add ungreedy .* at the beginning to find matches after the
         // first character
@@ -652,6 +688,9 @@ struct RegexParser
         ++numCaptures;
 
         parseRegex( s, reFlags );
+
+        assert( fixedCharStack.length == 1 );
+        //writefln( "regex: %s, min length: %s stacklen = %s", s, topFixedCharStack(), fixedCharStack.length );
 
         program.length += InstSave.sizeof;
         instSave = cast(InstSave*)&program[$-InstSave.sizeof];
@@ -768,9 +807,13 @@ struct RegexParser
      */
     size_t parseRegex(String)( String pattern, ref RegexFlags reFlags )
     {
+        fixedCharStack ~= -1;
+
         size_t nextStart = 0;
         size_t progConcatStart = program.length;
         nextStart = parseConcat( pattern, reFlags );
+
+        sumFixedCharStack();
 
         while( nextStart != pattern.length && pattern[nextStart] == '|' )
         {
@@ -789,10 +832,19 @@ struct RegexParser
             program ~= jumpInstBuf;
             // We'll need to set the jump target after we parse the next concat
 
+            fixedCharStack ~= -1;
+
             // Parse next concat
             nextStart++;
             nextStart += parseConcat( pattern[nextStart..$], reFlags );
+
+            sumFixedCharStack();
+            // Check that all alternations are the same length
+            if ( reFlags.FixedLength && fixedCharStack[$-1] != fixedCharStack[$-2] )
+                throw new Exception( "Lookbehind expression not fixed length" );
             
+            fixedCharStack.length -= 1; // pop
+
             // Set jump target
             jumpInst = cast(InstJump*)&program[jumpInstPos]; // Get the jump instruction in the program
             jumpInst.loc = program.length;
@@ -805,20 +857,29 @@ struct RegexParser
     {
         size_t nextStart = 0;
 
+        fixedCharStack ~= -1;
+
         // Keep going until we reach the end or an alternation or a group
         while ( nextStart != pattern.length && pattern[nextStart] != '|' && pattern[nextStart] != ')' )
         {
             nextStart += parseRep( pattern[nextStart..$], reFlags );
         }
 
+        sumFixedCharStack();
+
         return nextStart;
     }
 
     size_t parseRep(String)( String pattern, ref RegexFlags reFlags )
     {
+        fixedCharStack ~= -1;
+
         size_t start = 0;
         size_t progAtomStart = program.length;
         size_t end = parseAtom( pattern, reFlags );
+
+
+        sumFixedCharStack();
     
         // check rep character
         if ( end == pattern.length || pattern[end] == '|' || pattern[end] == ')' )
@@ -831,6 +892,11 @@ struct RegexParser
             // c : jump a
             // d : ...
         {
+            if ( reFlags.FixedLength )
+                throw new Exception( "Lookbehind expression not fixed length" );
+
+            fixedCharStack[$-1] = 0; // min = 0 * atom
+
             bool isGreedy = true;
             if ( pattern.length > end+1 && pattern[end+1] == '?' )
                 isGreedy = false;
@@ -867,6 +933,9 @@ struct RegexParser
             // b : split a, c
             // c : ...
         {
+            if ( reFlags.FixedLength )
+                throw new Exception( "Lookbehind expression not fixed length" );
+
             bool isGreedy = true;
             if ( pattern.length > end+1 && pattern[end+1] == '?' )
                 isGreedy = false;
@@ -891,6 +960,11 @@ struct RegexParser
             // b : atom
             // c : ...
         {
+            if ( reFlags.FixedLength )
+                throw new Exception( "Lookbehind expression not fixed length" );
+
+            fixedCharStack[$-1] = 0; // min = 0 * atom
+
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
             splitInst.locPref = progAtomStart;
             splitInst.locSec = program.length;
@@ -916,6 +990,11 @@ struct RegexParser
             // ..
             //     atom n
         {
+            if ( reFlags.FixedLength )
+                throw new Exception( "Lookbehind expression not fixed length" );
+
+            fixedCharStack[$-1] = 0; // min = 0 * atom (say)
+
             end += 1;
 
             int readDigits( int end )
@@ -1027,6 +1106,7 @@ struct RegexParser
         bool capturingGroup = true;
         bool lookAroundGroup = false;
         bool positiveLookAround = true;
+        bool lookAhead = true;
 
         RegexFlags newReFlags = reFlags;
 
@@ -1039,7 +1119,7 @@ struct RegexParser
             dchar c = decode( pattern, newEnd );
             bool flagMode = true;
 
-            while( c != ':' && c != ')' && c != '=' && c != '!' )
+            while( c != ':' && c != ')' && c != '=' && c != '!' && c != '<' )
             {
                 if ( c == '-' )
                 {
@@ -1070,6 +1150,26 @@ struct RegexParser
                 lookAroundGroup = true;
                 positiveLookAround = false;
             }
+            else if ( c == '<' ) // lookbehind
+            {
+                c = decode( pattern, newEnd );
+                if ( c == '=' )
+                {
+                    capturingGroup = false;
+                    lookAroundGroup = true;
+                    positiveLookAround = true;
+                    lookAhead = false;
+                }
+                else if ( c == '!' )
+                {
+                    capturingGroup = false;
+                    lookAroundGroup = true;
+                    positiveLookAround = false;
+                    lookAhead = false;
+                }
+                else
+                    throw new Exception( "Invalid lookbehind expression" );
+            }
             else if ( c == ')' )
             {
                 // Set flags for enclosing scope
@@ -1095,13 +1195,16 @@ struct RegexParser
             ++numCaptures;
         }
 
+        size_t lookAroundOffset;
         if ( lookAroundGroup )
         {
             mixin( MakeREInst( "InstLookAround", "lookAroundInst" ) );
-            lookAroundInst.ahead = true;
+            lookAroundInst.ahead = lookAhead;
             lookAroundInst.positive = positiveLookAround;
 
+            lookAroundOffset = program.length;
             program ~= lookAroundInstBuf;
+            fixedCharStack ~= -1;
         }
 
         end += parseRegex( pattern[end..$], newReFlags );
@@ -1127,9 +1230,17 @@ struct RegexParser
 
         if ( lookAroundGroup )
         {
+            sumFixedCharStack();
+            InstLookAround* lookAroundInst = cast(InstLookAround*)&program[lookAroundOffset];
+            if ( !lookAroundInst.ahead )
+            {
+                lookAroundInst.distance = topFixedCharStack();
+            }
+            fixedCharStack.length -= 1; // pop
             mixin( MakeREInst( "InstMatch", "matchInst" ) );
 
             program ~= matchInstBuf;
+            lookAroundInst.jumpLoc = program.length;
         }
 
         end++;
@@ -1142,6 +1253,8 @@ struct RegexParser
     // We need a set regex
     size_t parseSet(String)( String pattern, ref RegexFlags reFlags )
     {
+        fixedCharStack ~= 1;
+
         size_t start = 0;
         size_t end=1; // take leading '[' into account
 
@@ -1435,6 +1548,8 @@ struct RegexParser
                 
             // Single characters
         default:
+            fixedCharStack ~= 1;
+
             switch ( escChar )
             {
             case 'a':
@@ -1497,6 +1612,8 @@ struct RegexParser
         }
         else if ( c == '.' )
         {
+            fixedCharStack ~= 1;
+
             decode( s, end );
 
             mixin( MakeREInst( "InstAnyChar", "anyCharInst" ) );
@@ -1504,6 +1621,8 @@ struct RegexParser
         }
         else if ( c == '\\' ) // escaped character
         {
+            fixedCharStack ~= 1;
+
             if ( s.length == 1 )
                 writefln( "parseAtom error escape character" );
             decode( s, end ); // Advances end
@@ -1543,6 +1662,8 @@ struct RegexParser
         }
         else // Character
         {
+            fixedCharStack ~= 1;
+
             if ( reFlags.CaseInsensitive )
             {
                 mixin( MakeREInst( "InstIChar", "iCharInst" ) );
@@ -1772,6 +1893,7 @@ public class BackTrackEngine
                     
                 size_t oldCapture = _captures[instSave.num];
                 _captures[instSave.num] = sPos;
+
                 pc += InstSave.sizeof;
                 if ( execute( pc, sPos, prevSPos, s ) )
                     return 1;
@@ -1849,7 +1971,50 @@ public class BackTrackEngine
                 pc += InstLookAround.sizeof;
                 auto instLookAround = cast(InstLookAround*)inst;
                 
-                return execute( pc, sPos, prevSPos, s ) == instLookAround.positive;
+                if ( instLookAround.ahead )
+                {
+                    if ( execute( pc, sPos, prevSPos, s ) != instLookAround.positive )
+                        return 0;
+
+                    pc = instLookAround.jumpLoc;
+                }
+                else
+                {
+                    // must decode backwards by distance chars if possible
+                    // utf8
+                    bool rDecode( in char[] s, ref size_t idx )
+                    {
+
+                        // scan backwards for a lead byte (not 10...)
+                        size_t tidx = idx;
+                        do
+                        {
+                            if ( tidx == 0 )
+                                return false;
+                            --tidx;
+                        } while( (s[tidx] & 0xc0) == 0x80 );
+
+                        idx = tidx;
+                        return true;
+                    }
+
+                    size_t shiftedSPos = sPos;
+                    size_t shiftedPrevSPos;
+
+                    for( int i=0; i<instLookAround.distance; ++i )
+                    {
+                        if( !rDecode( s, shiftedSPos ) )
+                            return false;
+                    }
+                    if ( shiftedSPos == 0 )
+                        shiftedPrevSPos = size_t.max;
+                    else
+                        shiftedPrevSPos = shiftedSPos - 1;
+                    
+                    if ( execute( pc, shiftedSPos, shiftedPrevSPos, s ) != instLookAround.positive )
+                        return 0;
+                    pc = instLookAround.jumpLoc;
+                }
 
                 break;
             }
@@ -1893,6 +2058,11 @@ public class BackTrackEngine
 
         // restore _captures
         _captures = oldCaptures;
+    }
+
+    void printProgram()
+    {
+        .printProgram( _re.program );
     }
 }
 
@@ -2188,7 +2358,6 @@ public class LockStepEngine
 
     void printProgram()
     {
-        writefln( "Hello" );
         .printProgram( _re.program );
     }
 
@@ -2477,6 +2646,14 @@ unittest
     assert( btregex( "[^こん]*$" ).match( "こんにちは" )[0] == "にちは" );
 
     // Lookahead tests (only for backtracking engine)
-    assert( btregex( "q(?=u)" ).match( "qu" ) );
+    assert( btregex( "q(?=u)" ).match( "qu" )[0] == "q" );
+    assert( !btregex( "q(?=u)" ).match( "qo" ) );
     assert( !btregex( "q(?!u)" ).match( "qu" ) );
+    assert( btregex( "q(?!u)" ).match( "qこ" )[0] == "q" );
+
+    // Lookbehind tests
+    assert( btregex( "(?<=q)u" ).match( "qu" )[0] == "u" );
+    assert( !btregex( "(?<=q)u" ).match( "nu" ) );
+    assert( !btregex( "(?<!q)u" ).match( "qu" ) );
+    assert( btregex( "(?<!q)ん" ).match( "こん" )[0] == "ん" );
 }

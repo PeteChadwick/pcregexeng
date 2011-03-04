@@ -1728,8 +1728,6 @@ public struct Match(String,int NumCaptures)
     }
 }
 
-Match!(string,2) testmatch;
-
 public struct Match(String)
 {
     this( size_t captures[], String captureString )
@@ -2051,9 +2049,16 @@ public class BackTrackEngine
         
         // Write captures directly into match
         _captures = match.mCaptures;
+
+        _captures[] = size_t.max;
+
         if( execute( 0, 0, size_t.max, s ) )
         {
-            match.mCaptureString = s;
+            match.mCaptureString = s[_captures[0].._captures[1]];
+        }
+        else
+        {
+            match.mCaptureString = "";
         }
 
         // restore _captures

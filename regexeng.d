@@ -2,6 +2,7 @@
   Regex engine based on ideas in Russ Cox's regex article:
   http://swtch.com/~rsc/regexp/regexp2.html
   Some implementation details inspired by std.regex
+  Range API based on std.regex
 
   Author: Peter Chadwick
 
@@ -1705,38 +1706,38 @@ LockStepEngine regex(String)( String s )
 // which can use the available space.
 public struct Match(String,int NumCaptures)
 {
-    private String mCaptureString;
-    private size_t mCaptures[NumCaptures] = size_t.max;
+    private String _captureString;
+    private size_t _captures[2*NumCaptures] = size_t.max;
 
     bool opCast(T)() if (is(T == bool))
     {
-        return mCaptures[0] != size_t.max;
+        return _captures[0] != size_t.max;
     }
 
     String opIndex( uint i )
     {
-        return mCaptureString[ mCaptures[2*i]..mCaptures[2*i+1] ];
+        return _captureString[ _captures[2*i].._captures[2*i+1] ];
     }
 
     @property const size_t length()
     {
-        return mCaptures.length / 2;
+        return _captures.length / 2;
     }
 
     @property const size_t startMatch()
     {
-        if ( mCaptures.empty )
+        if ( _captures.empty )
             throw new Exception( "Match has not matched a string" );
 
-        return mCaptures[0];
+        return _captures[0];
     }
 
     @property const size_t endMatch()
     {
-        if ( mCaptures.empty )
+        if ( _captures.empty )
             throw new Exception( "Match has not matched a string" );
 
-        return mCaptures[1];
+        return _captures[1];
     }
 }
 
@@ -1744,46 +1745,200 @@ public struct Match(String)
 {
     this( size_t captures[], String captureString )
     {
-        mCaptures = captures.dup;
-        mCaptureString = captureString;
+        _captures = captures.dup;
+        _captureString = captureString;
     }
 
-    private size_t mNumCaptures;
-    private String mCaptureString;
-    private size_t mCaptures[];
+    private size_t _numCaptures;
+    private String _captureString;
+    private size_t _captures[];
 
     bool opCast(T)() if (is(T == bool))
     {
-        return !mCaptures.empty;
+        return !_captures.empty;
     }
 
     String opIndex( uint i )
     {
-        return mCaptureString[ mCaptures[2*i]..mCaptures[2*i+1] ];
+        return _captureString[ _captures[2*i].._captures[2*i+1] ];
     }
 
     @property size_t length()
     {
-        return mCaptures.length / 2;
+        return _captures.length / 2;
     }
 
     @property size_t startMatch()
     {
-        if ( mCaptures.empty )
+        if ( _captures.empty )
             throw new Exception( "Match has not matched a string" );
 
-        return mCaptures[0];
+        return _captures[0];
     }
 
     @property size_t endMatch()
     {
-        if ( mCaptures.empty )
+        if ( _captures.empty )
             throw new Exception( "Match has not matched a string" );
 
-        return mCaptures[1];
+        return _captures[1];
     }
 }
 
+// Match with range primitives ala std.regex
+public struct MatchRange(String,RegexEngine)
+{
+    private Match!String _match;
+    private RegexEngine _re;
+    private String _matchString;
+
+    this( String s, RegexEngine re )
+    {
+        _matchString = s;
+        _re = re;
+        _match._captures.length = 2*_re._numCaptures;
+
+        _re.match( _matchString, _match, 0 );
+    }
+
+    @property bool empty()
+    {
+        return _match._captures.length == 0 ||
+            _match._captures[0] == size_t.max;
+    }
+
+    void popFront()
+    {
+        size_t sPos = _match._captures[1];
+        // if the match length is 0, move to the next character
+        if ( _match._captures[1]-_match._captures[0] == 0 )
+        {
+            decode( _matchString, sPos );
+        }
+
+        _re.match( _matchString, _match, sPos );
+    }
+
+    MatchRange!(String,RegexEngine) front()
+    {
+        return this;
+    }
+
+    String pre()
+    {
+        return _matchString[0.._match._captures[0]];
+    }
+
+    String hit()
+    {
+        return _matchString[_match._captures[0].._match._captures[1]];
+    }
+
+    String post()
+    {
+        return _matchString[_match._captures[1]..$];
+    }
+    
+    @property Captures!String captures()
+    {
+        return Captures!(String)(_match);
+    }
+}
+
+// Range interface for match captures
+public struct Captures(String)
+{
+    private Match!String _match;
+    int _captureNum=0;
+
+    this( Match!String match )
+    {
+        _match = match;
+    }
+
+    @property bool empty()
+    {
+        if ( _captureNum >= _match.length ||
+             _match._captures[_captureNum] == size_t.max )
+            return true;
+        else
+            return false;
+    }
+
+    @property void popFront()
+    {
+        assert(!empty);
+        ++_captureNum;
+    }
+
+    @property String front()
+    {
+        return _match[_captureNum];
+    }
+
+    @property size_t length()
+    {
+        return _match.length;
+    }
+}
+
+unittest
+{
+    auto mr = MatchRange!(string,BackTrackEngine)( "aaa", btregex( "." ) );
+
+    foreach( m; mr )
+    {
+        writefln( "match = %s[%s]%s", m.pre(), m.hit(), m.post() );
+    }
+
+    auto mr2 = MatchRange!(dstring,BackTrackEngine)( "She sells sea shells on the sea shore"d, btregex( `\b(?i)s\w+` ) );
+
+    foreach( m; mr2 )
+    {
+        writefln( "match = %s[%s]%s", m.pre(), m.hit(), m.post() );
+    }
+
+    auto mr3 = MatchRange!(string,BackTrackEngine)(
+        "user@domain.com",
+        btregex(r"([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})" ) );
+    
+    foreach( c; mr3.captures )
+    {
+        writefln( "capture = %s", c );
+    }
+}
+
+// must decode backwards by distance chars if possible
+// utf8
+private bool rDecode( in char[] s, ref size_t idx )
+{
+    
+    // scan backwards for a lead byte (not 10...)
+    size_t tidx = idx;
+    do
+    {
+        if ( tidx == 0 )
+            return false;
+        --tidx;
+    } while( (s[tidx] & 0xc0) == 0x80 );
+    
+    idx = tidx;
+    return true;
+}
+
+// utf32
+private bool rDecode( in dchar[] s, ref size_t idx )
+{
+    if ( idx == 0 )
+        return false;
+    else
+    {
+        --idx;
+        return true;
+    }
+}
+
+// TODO utf16
 
 
 public class BackTrackEngine
@@ -1987,23 +2142,6 @@ public class BackTrackEngine
                 }
                 else
                 {
-                    // must decode backwards by distance chars if possible
-                    // utf8
-                    bool rDecode( in char[] s, ref size_t idx )
-                    {
-
-                        // scan backwards for a lead byte (not 10...)
-                        size_t tidx = idx;
-                        do
-                        {
-                            if ( tidx == 0 )
-                                return false;
-                            --tidx;
-                        } while( (s[tidx] & 0xc0) == 0x80 );
-
-                        idx = tidx;
-                        return true;
-                    }
 
                     size_t shiftedSPos = sPos;
                     size_t shiftedPrevSPos;
@@ -2030,7 +2168,7 @@ public class BackTrackEngine
         return 0;
     }
 
-    Match!String match(String)( String s )
+    Match!String match(String)( String s, size_t startPos=0 )
     {
         auto program = _re.program;
 
@@ -2038,7 +2176,7 @@ public class BackTrackEngine
 
         Match!String matchData;
 
-        if( execute( 0, 0, size_t.max, s ) )
+        if( execute( 0, startPos, size_t.max, s ) )
         {
             matchData = Match!String( _captures, s );
         }
@@ -2050,24 +2188,25 @@ public class BackTrackEngine
         return matchData;
     }
 
-    void match(String,MatchType)( String s, ref MatchType match )
+
+    void match(String,MatchType)( String s, ref MatchType match, size_t startPos=0 )
     {
         auto program = _re.program;
 
         size_t[] oldCaptures = _captures;
         
         // Write captures directly into match
-        _captures = match.mCaptures;
+        _captures = match._captures;
 
         _captures[] = size_t.max;
 
-        if( execute( 0, 0, size_t.max, s ) )
+        if( execute( 0, startPos, size_t.max, s ) )
         {
-            match.mCaptureString = s;
+            match._captureString = s;
         }
         else
         {
-            match.mCaptureString = "";
+            match._captureString = "";
         }
 
         // restore _captures
@@ -2247,7 +2386,7 @@ public class LockStepEngine
       - we'll know if we matched something if captures isn't empty
      */
 
-    Match!String match(String)( String s )
+    Match!String match(String)( String s, size_t startPos=0 )
     {
         _stateGenerations[] = size_t.max;
         _emptyCaptures[] = size_t.max;
@@ -2266,7 +2405,7 @@ public class LockStepEngine
 
         dchar prevChar;
 
-        size_t nextCharIdx = 0;
+        size_t nextCharIdx = startPos;
         while( _consumingThreads.length > 0 && nextCharIdx < s.length )
         {
             _currentThreads.clear();

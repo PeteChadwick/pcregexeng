@@ -1,6 +1,7 @@
 /*
   Regex engine based on ideas in Russ Cox's regex article:
   http://swtch.com/~rsc/regexp/regexp2.html
+  Some implementation details inspired by std.regex
 
   Author: Peter Chadwick
 
@@ -1682,7 +1683,20 @@ struct RegexParser
     }
 }
 
+BackTrackEngine btregex(String)( String s )
+{
+    auto re = new Regex(s);
+    return new BackTrackEngine(re);
+}
 
+LockStepEngine regex(String)( String s )
+{
+    auto re = new Regex(s);
+    return new LockStepEngine(re);
+}
+
+
+// TODO: Add range interface to match and captures like std.regex
 
 // Match could be parameterized on the number of captures if it were
 // known at compile time to avoid dynamic allocation.
@@ -1693,7 +1707,6 @@ public struct Match(String,int NumCaptures)
 {
     private String mCaptureString;
     private size_t mCaptures[NumCaptures] = size_t.max;
-    private size_t mStartMatchOffset;
 
     bool opCast(T)() if (is(T == bool))
     {
@@ -1702,16 +1715,15 @@ public struct Match(String,int NumCaptures)
 
     String opIndex( uint i )
     {
-        size_t startMatch = mCaptures[0];
-        return mCaptureString[ mCaptures[2*i]-startMatch..mCaptures[2*i+1]-startMatch ];
+        return mCaptureString[ mCaptures[2*i]..mCaptures[2*i+1] ];
     }
 
-    @property size_t length()
+    @property const size_t length()
     {
         return mCaptures.length / 2;
     }
 
-    @property size_t startMatch()
+    @property const size_t startMatch()
     {
         if ( mCaptures.empty )
             throw new Exception( "Match has not matched a string" );
@@ -1719,7 +1731,7 @@ public struct Match(String,int NumCaptures)
         return mCaptures[0];
     }
 
-    @property size_t endMatch()
+    @property const size_t endMatch()
     {
         if ( mCaptures.empty )
             throw new Exception( "Match has not matched a string" );
@@ -1733,16 +1745,12 @@ public struct Match(String)
     this( size_t captures[], String captureString )
     {
         mCaptures = captures.dup;
-        //mCaptureString = captureString.idup;
-        // Assume the string is still there when examining captures
         mCaptureString = captureString;
     }
 
     private size_t mNumCaptures;
-    //private String[] mCaptures;
     private String mCaptureString;
     private size_t mCaptures[];
-    private size_t mStartMatchOffset;
 
     bool opCast(T)() if (is(T == bool))
     {
@@ -1751,8 +1759,7 @@ public struct Match(String)
 
     String opIndex( uint i )
     {
-        size_t startMatch = mCaptures[0];
-        return mCaptureString[ mCaptures[2*i]-startMatch..mCaptures[2*i+1]-startMatch ];
+        return mCaptureString[ mCaptures[2*i]..mCaptures[2*i+1] ];
     }
 
     @property size_t length()
@@ -1776,6 +1783,8 @@ public struct Match(String)
         return mCaptures[1];
     }
 }
+
+
 
 public class BackTrackEngine
 {
@@ -2031,7 +2040,7 @@ public class BackTrackEngine
 
         if( execute( 0, 0, size_t.max, s ) )
         {
-            matchData = Match!String( _captures, s[_captures[0].._captures[1]] );
+            matchData = Match!String( _captures, s );
         }
         else
         {
@@ -2054,7 +2063,7 @@ public class BackTrackEngine
 
         if( execute( 0, 0, size_t.max, s ) )
         {
-            match.mCaptureString = s[_captures[0].._captures[1]];
+            match.mCaptureString = s;
         }
         else
         {
@@ -2071,17 +2080,6 @@ public class BackTrackEngine
     }
 }
 
-BackTrackEngine btregex(String)( String s )
-{
-    auto re = new Regex(s);
-    return new BackTrackEngine(re);
-}
-
-LockStepEngine regex(String)( String s )
-{
-    auto re = new Regex(s);
-    return new LockStepEngine(re);
-}
 
 public class LockStepEngine
 {
@@ -2351,7 +2349,7 @@ public class LockStepEngine
         
         Match!String matchData;
         if ( captures[0] != size_t.max ) // If we assigned something to captures, we must have had a match
-            matchData = Match!String( captures, s[captures[0]..captures[1]] );
+            matchData = Match!String( captures, s );
         else
         {
             captures.length = 0;

@@ -80,7 +80,7 @@ void main()
        else
            writefln( "Text: %s", textToMatch );
 
-       auto re = regex( regexStrings[testNum] );
+       auto re = lsregex( regexStrings[testNum] );
        auto startTime = clock();
        Match!string m;
        for( int i=0; i<numLoops; ++i )

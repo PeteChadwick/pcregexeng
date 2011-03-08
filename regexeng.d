@@ -1690,7 +1690,7 @@ BackTrackEngine btregex(String)( String s )
     return new BackTrackEngine(re);
 }
 
-LockStepEngine regex(String)( String s )
+LockStepEngine lsregex(String)( String s )
 {
     auto re = new Regex(s);
     return new LockStepEngine(re);
@@ -2670,58 +2670,58 @@ unittest
 
 unittest
 {
-    auto re = regex( r".*" );
+    auto re = lsregex( r".*" );
     auto btre = btregex( r".*" );
     auto m = re.match( "a" );
 
-    assert( regex( r"a*" ).match( "" ) );
+    assert( lsregex( r"a*" ).match( "" ) );
     assert( btregex( r"a*" ).match( "" ) );
-    assert( !regex( r"a+" ).match( "" ) );
+    assert( !lsregex( r"a+" ).match( "" ) );
     assert( !btregex( r"a+" ).match( "" ) );
-    assert( regex( r"a+" ).match( "a" ) );
+    assert( lsregex( r"a+" ).match( "a" ) );
     assert( btregex( r"a+" ).match( "a" ) );
-    assert( regex( "a?" ).match( "" ) );
+    assert( lsregex( "a?" ).match( "" ) );
     assert( btregex( "a?" ).match( "" ) );
-    assert( regex( "a?" ).match( "a" ) );
+    assert( lsregex( "a?" ).match( "a" ) );
     assert( btregex( "a?" ).match( "a" ) );
-    assert( !regex( "a{2,3}" ).match( "a" ) );
+    assert( !lsregex( "a{2,3}" ).match( "a" ) );
     assert( !btregex( "a{2,3}" ).match( "a" ) );
-    assert( regex( "a{2,3}" ).match( "aa" ) );
+    assert( lsregex( "a{2,3}" ).match( "aa" ) );
     assert( btregex( "a{2,3}" ).match( "aa" ) );
-    assert( regex( "a{2,3}b" ).match( "aaab" ) );
+    assert( lsregex( "a{2,3}b" ).match( "aaab" ) );
     assert( btregex( "a{2,3}b" ).match( "aaab" ) );
-    assert( !regex( "^a{2,3}b" ).match( "aaaab" ) );
+    assert( !lsregex( "^a{2,3}b" ).match( "aaaab" ) );
     assert( !btregex( "^a{2,3}b" ).match( "aaaab" ) );
-    assert( regex( "(123)?" ).match( "123" ) );
+    assert( lsregex( "(123)?" ).match( "123" ) );
     assert( btregex( "(123)?" ).match( "123" ) );
-    assert( regex( "[A-Z]?x" ).match( "Bx" ) );
+    assert( lsregex( "[A-Z]?x" ).match( "Bx" ) );
     assert( btregex( "[A-Z]?x" ).match( "Bx" ) );
-    assert( regex( "[A-Z0-9]+x" ).match( "3x" ) );
+    assert( lsregex( "[A-Z0-9]+x" ).match( "3x" ) );
     assert( btregex( "[A-Z0-9]+x" ).match( "3x" ) );
-    assert( !regex( "[A-Z0-9]+x" ).match( "x" ) );
+    assert( !lsregex( "[A-Z0-9]+x" ).match( "x" ) );
     assert( !btregex( "[A-Z0-9]+x" ).match( "x" ) );
-    assert( regex( "ab" ).match( "abcdef" ).endMatch == 2 );
+    assert( lsregex( "ab" ).match( "abcdef" ).endMatch == 2 );
     assert( btregex( "ab" ).match( "abcdef" ).endMatch == 2 );
-    assert( !regex( "ab$" ).match( "abcdef" ) );
+    assert( !lsregex( "ab$" ).match( "abcdef" ) );
     assert( !btregex( "ab$" ).match( "abcdef" ) );
-    assert( regex( "ab$" ).match( "leadingstuffab" ) );
+    assert( lsregex( "ab$" ).match( "leadingstuffab" ) );
     assert( btregex( "ab$" ).match( "leadingstuffab" ) );
-    assert( !regex( "^ab$" ).match( "leadingstuffab" ) );
+    assert( !lsregex( "^ab$" ).match( "leadingstuffab" ) );
     assert( !btregex( "^ab$" ).match( "leadingstuffab" ) );
-    assert( regex( r"^\bZ\b \bY\BX\b \bW\BV\BU\b$" ).match( "Z YX WVU" ) );
+    assert( lsregex( r"^\bZ\b \bY\BX\b \bW\BV\BU\b$" ).match( "Z YX WVU" ) );
     assert( btregex( r"^\bZ\b \bY\BX\b \bW\BV\BU\b$" ).match( "Z YX WVU" ) );
-    assert( !regex( r"^X\bY$" ).match( "XY" ) );
+    assert( !lsregex( r"^X\bY$" ).match( "XY" ) );
     assert( !btregex( r"^X\bY$" ).match( "XY" ) );
 
     // browsing bugzilla for dmd regex issues
     // 5511
-    m = regex( "(a(.*))?(b)" ).match( "ab" );
+    m = lsregex( "(a(.*))?(b)" ).match( "ab" );
     assert(m.length == 4);
     assert(m[0] == "ab");
     assert(m[1] == "a");
     assert(m[2] == "");
     assert(m[3] == "b");
-    m = regex( "(a(.*))?(b)" ).match( "b" );
+    m = lsregex( "(a(.*))?(b)" ).match( "b" );
     assert(m.length == 4);
     assert(m[0] == "b");
     assert(m[1] == "");
@@ -2729,25 +2729,25 @@ unittest
     assert(m[3] == "b");
 
     // 2108
-    assert( regex( "<packet.*/packet>" ).match( "<packet>text</packet><packet>text</packet>" )[0] ==
+    assert( lsregex( "<packet.*/packet>" ).match( "<packet>text</packet><packet>text</packet>" )[0] ==
             "<packet>text</packet><packet>text</packet>" );
     assert( btregex( "<packet.*/packet>" ).match( "<packet>text</packet><packet>text</packet>" )[0] ==
             "<packet>text</packet><packet>text</packet>" );
 
 
     // 5019
-    assert( regex("abc(.*)").match( "abc" )[1] == "" );
+    assert( lsregex("abc(.*)").match( "abc" )[1] == "" );
     assert( btregex("abc(.*)").match( "abc" )[1] == "" );
     // 5523
-    assert( regex( `([\s_]|sec)` ).match( "sec" )[0] == "sec" );
+    assert( lsregex( `([\s_]|sec)` ).match( "sec" )[0] == "sec" );
 
     enum string email =
         r"([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})";
 
-    assert( regex( email ).match( "user@domain.name.com" ) );
-    assert( !regex( email ).match( "not.an.email.address" ) );
+    assert( lsregex( email ).match( "user@domain.name.com" ) );
+    assert( !lsregex( email ).match( "not.an.email.address" ) );
    
-    m = regex( email ).match( "User@domain.name.com" );
+    m = lsregex( email ).match( "User@domain.name.com" );
     assert( m[1] == "User" );
     assert( m[2] == "domain.name.com" );
 
@@ -2755,21 +2755,21 @@ unittest
     assert( m[1] == "User" );
     assert( m[2] == "domain.name.com" );
 
-    re = regex( "(?:(?i)[ab]b)(?:.)b[ab]" );
+    re = lsregex( "(?:(?i)[ab]b)(?:.)b[ab]" );
     assert( re.match( "ABoba" ).length == 1 );
 
     btre = btregex( "(?:(?i)[ab]b)(?:.)b[ab]" );
     assert( btre.match( "ABoba" ).length == 1 );
 
-    assert( regex( "<.*>" ).match( "<one><two><three>" )[0] == "<one><two><three>" );
+    assert( lsregex( "<.*>" ).match( "<one><two><three>" )[0] == "<one><two><three>" );
     assert( btregex( "<.*>" ).match( "<one><two><three>" )[0] == "<one><two><three>" );
-    assert( regex( "<.*?>" ).match( "<one><two><three>" )[0] == "<one>" );
+    assert( lsregex( "<.*?>" ).match( "<one><two><three>" )[0] == "<one>" );
     assert( btregex( "<.*?>" ).match( "<one><two><three>" )[0] == "<one>" );
 
     // Multi line mode
-    assert( regex( "(?m)^yum$" ).match( "yuck\nyum\nyuck" ) );
+    assert( lsregex( "(?m)^yum$" ).match( "yuck\nyum\nyuck" ) );
     assert( btregex( "(?m)^yum$" ).match( "yuck\nyum\nyuck" ) );
-    assert( !regex( "^yum$" ).match( "yuck\nyum\nyuck" ) );
+    assert( !lsregex( "^yum$" ).match( "yuck\nyum\nyuck" ) );
     assert( !btregex( "^yum$" ).match( "yuck\nyum\nyuck" ) );
 
     Match!(string,2) staticMatch;
@@ -2780,11 +2780,11 @@ unittest
     assert( staticMatch[1] == "yum" );
 
     // Non ascii characters
-    assert( regex( "こ(.*)" ).match( "こんにちは" )[1] == "んにちは" );
+    assert( lsregex( "こ(.*)" ).match( "こんにちは" )[1] == "んにちは" );
     assert( btregex( "こ(.*)" ).match( "こんにちは" )[1] == "んにちは" );
-    assert( regex( "[こん]*" ).match( "こんにちは" )[0] == "こん" );
+    assert( lsregex( "[こん]*" ).match( "こんにちは" )[0] == "こん" );
     assert( btregex( "[こん]*" ).match( "こんにちは" )[0] == "こん" );
-    assert( regex( "[^こん]*$" ).match( "こんにちは" )[0] == "にちは" );
+    assert( lsregex( "[^こん]*$" ).match( "こんにちは" )[0] == "にちは" );
     assert( btregex( "[^こん]*$" ).match( "こんにちは" )[0] == "にちは" );
 
     // Lookahead tests (only for backtracking engine)

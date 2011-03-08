@@ -683,6 +683,8 @@ struct RegexParser
         
         program = splitInstBuf ~ anyCharInstBuf ~ jumpInstBuf;
 
+        size_t endUngreedyStar = program.length;
+
         program.length += InstSave.sizeof;
         InstSave* instSave = cast(InstSave*)&program[$-InstSave.sizeof];
         *instSave = InstSave();
@@ -690,6 +692,15 @@ struct RegexParser
         ++numCaptures;
 
         parseRegex( s, reFlags );
+
+        // If the first instruction is a BOT remove ungreedyStar
+        size_t firstInstPos = endUngreedyStar + InstSave.sizeof;
+        Inst* firstInst = cast(Inst*)&program[firstInstPos];
+        if ( firstInst.type == REInst.BOT )
+        {
+            program = program[endUngreedyStar..$];
+            fixOffsets( program, 0, -endUngreedyStar );
+        }
 
         assert( fixedCharStack.length == 1 );
         //writefln( "regex: %s, min length: %s stacklen = %s", s, topFixedCharStack(), fixedCharStack.length );
@@ -709,7 +720,7 @@ struct RegexParser
     size_t numCaptures=0;
     size_t[] parserCaptureStack;
 
-    void fixOffsets( byte[] prog, size_t pos, size_t shift )
+    void fixOffsets( byte[] prog, size_t pos, int shift )
     {
         while( pos < prog.length )
         {

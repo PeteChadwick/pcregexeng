@@ -33,6 +33,7 @@ void main()
    string[] testName = 
        [
            "Email",
+           "Email",
            "Email prefix 1",
            "Email prefix 2",
            "Pathalogical"
@@ -41,6 +42,7 @@ void main()
    string[] regexStrings =
        [
            email,
+           "^"~email~"$",
            email,
            email,
            pathalogical
@@ -49,6 +51,7 @@ void main()
    string[] regexTextToMatch =
        [
        emailStr,
+       emailStr,
        textPrefix.idup~emailStr,
        textPrefix2.idup~emailStr,
        pathalogicalStr
@@ -56,6 +59,7 @@ void main()
 
    int[] repetitions =
        [
+           100_000,
            100_000,
            10,
            10,
@@ -81,12 +85,13 @@ void main()
            writefln( "Text: %s", textToMatch );
 
        auto re = lsregex( regexStrings[testNum] );
+       //re.printProgram();
        auto startTime = clock();
        Match!string m;
        MatchRange!(string,BackTrackEngine) m2;
        for( int i=0; i<numLoops; ++i )
        {
-           m = re.matchAt( regexTextToMatch[testNum] );
+           m = re.matchAt( textToMatch );
            assert( m );
        }
        auto endTime = clock();
@@ -99,7 +104,7 @@ void main()
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
-           m2 = match( regexTextToMatch[testNum], btre );
+           m2 = match( textToMatch, btre );
            //m = btre.matchAt( regexTextToMatch[testNum] );
            assert( m2 );
        }
@@ -114,7 +119,7 @@ void main()
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
-           btre.matchAt( regexTextToMatch[testNum], staticMatch );
+           btre.matchAt( textToMatch, staticMatch );
            assert( staticMatch );
        }
        endTime = clock();
@@ -128,7 +133,7 @@ void main()
        auto stdre = std.regex.regex( regexStrings[testNum] );
        for( int i=0; i<numLoops; ++i )
        {
-           std.regex.match( regexTextToMatch[testNum], stdre );
+           std.regex.match( textToMatch, stdre );
        }
        endTime = clock();
        

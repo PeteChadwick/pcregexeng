@@ -83,9 +83,10 @@ void main()
        auto re = lsregex( regexStrings[testNum] );
        auto startTime = clock();
        Match!string m;
+       MatchRange!(string,BackTrackEngine) m2;
        for( int i=0; i<numLoops; ++i )
        {
-           m = re.match( regexTextToMatch[testNum] );
+           m = re.matchAt( regexTextToMatch[testNum] );
            assert( m );
        }
        auto endTime = clock();
@@ -98,21 +99,22 @@ void main()
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
-           m = btre.match( regexTextToMatch[testNum] );
-           assert( m );
+           m2 = match( regexTextToMatch[testNum], btre );
+           //m = btre.matchAt( regexTextToMatch[testNum] );
+           assert( m2 );
        }
        endTime = clock();
        
        ticks = endTime-startTime;
        writefln( "backtrack (%s): %s ticks %s ticks/MB (%s)",
-                 testName[testNum], ticks, ticks*factor, m[0] );
+                 testName[testNum], ticks, ticks*factor, m2.captures[0] );
 
        // We know we aren't using more than 4 captures in this test
        Match!(string,4) staticMatch;
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
-           btre.match( regexTextToMatch[testNum], staticMatch );
+           btre.matchAt( regexTextToMatch[testNum], staticMatch );
            assert( staticMatch );
        }
        endTime = clock();

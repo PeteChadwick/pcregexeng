@@ -655,11 +655,10 @@ struct RegexParser
     }
     
 
-
     // Make flags a default parameter?
-    this(String)( String s )
+    this(String)( String s, RegexFlags reFlags )
     {
-        RegexFlags reFlags;
+        //RegexFlags reFlags;
         reFlags.CaseInsensitive = false;
         reFlags.MultiLine = false;
         reFlags.Ungreedy = false;
@@ -1957,7 +1956,20 @@ private bool rDecode( in dchar[] s, ref size_t idx )
     }
 }
 
-// TODO utf16
+// utf16
+private bool rDecode( in wchar[] s, ref size_t idx )
+{
+    if ( idx == 0 )
+        return false;
+    else
+    {
+        --idx;
+        // check for high surrogate
+        if ( s[idx] >= 0xd800 && s[idx] <= 0xdbff )
+            --idx;
+        return true;
+    }
+}
 
 
 public class BackTrackEngine
@@ -2653,6 +2665,16 @@ public class Regex
         initialize( s );
     }
 
+    this( wstring s )
+    {
+        initialize( s );
+    }
+
+    this( dstring s )
+    {
+        initialize( s );
+    }
+
     static Regex opCall(String)( String s )
     {
         Regex re = new Regex();
@@ -2663,7 +2685,8 @@ public class Regex
     
     void initialize(String)(String s, string attributes = null )
     {
-        auto parser = RegexParser( s );
+        RegexParser.RegexFlags reFlags;
+        auto parser = RegexParser( s, reFlags );
         program = parser.program;
         numCaptures = parser.numCaptures;
         enumerateStates( program, numStates );
@@ -2819,4 +2842,17 @@ unittest
     assert( !btregex( "(?<=q)u" ).matchAt( "nu" ) );
     assert( !btregex( "(?<!q)u" ).matchAt( "qu" ) );
     assert( btregex( "(?<!q)ん" ).matchAt( "こん" )[0] == "ん" );
+
+    // char, wchar, dchar combinations (include surrogate pair character '𪛖')
+    // http://zsigri.tripod.com/fontboard/cjk/surrog.html
+
+    assert( match( "こんにちは 𪛖", btregex( "こんにちは 𪛖" ) ) );
+    assert( match( "こんにちは 𪛖", btregex( "こんにちは 𪛖"w ) ) );
+    assert( match( "こんにちは 𪛖", btregex( "こんにちは 𪛖"d ) ) );
+    assert( match( "こんにちは 𪛖"w, btregex( "こんにちは 𪛖" ) ) );
+    assert( match( "こんにちは 𪛖"w, btregex( "こんにちは 𪛖"w ) ) );
+    assert( match( "こんにちは 𪛖"w, btregex( "こんにちは 𪛖"d ) ) );
+    assert( match( "こんにちは 𪛖"d, btregex( "こんにちは 𪛖" ) ) );
+    assert( match( "こんにちは 𪛖"d, btregex( "こんにちは 𪛖"w ) ) );
+    assert( match( "こんにちは 𪛖"d, btregex( "こんにちは 𪛖"d ) ) );
 }

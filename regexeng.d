@@ -619,7 +619,7 @@ struct RegexParser
     {
         mixin( bitfields!(
                    bool, "CaseInsensitive", 1,
-                   bool, "MultiLine", 1, // unused
+                   bool, "MultiLine", 1,
                    bool, "Ungreedy", 1,  // unused
                    bool, "FixedLength", 1, // For lookbehind
                    uint, "", 4 ));
@@ -1719,6 +1719,11 @@ public struct Match(String,int NumCaptures)
     private String _captureString;
     private size_t _captures[2*NumCaptures] = size_t.max;
 
+    public void setNumCaptures( int numCaptures )
+    {
+        assert( 2*numCaptures <= _captures.length );
+    }
+
     bool opCast(T)() if (is(T == bool))
     {
         return _captures[0] != size_t.max;
@@ -1753,10 +1758,10 @@ public struct Match(String,int NumCaptures)
 
 public struct Match(String)
 {
-    this( size_t captures[], String captureString )
+    public void setNumCaptures( int numCaptures )
     {
-        _captures = captures.dup;
-        _captureString = captureString;
+        _numCaptures = numCaptures;
+        _captures.length = numCaptures * 2;
     }
 
     private size_t _numCaptures;
@@ -1765,7 +1770,7 @@ public struct Match(String)
 
     bool opCast(T)() if (is(T == bool))
     {
-        return !_captures.empty;
+        return _captures.length > 0 &&_captures[0] != size_t.max;
     }
 
     String opIndex( uint i )
@@ -1910,6 +1915,11 @@ public struct Captures(String)
 unittest
 {
     foreach( m; match( "aaa", btregex( "." ) ) )
+    {
+        writefln( "match = %s[%s]%s", m.pre(), m.hit(), m.post() );
+    }
+
+    foreach( m; match( "aaa", lsregex( "." ) ) )
     {
         writefln( "match = %s[%s]%s", m.pre(), m.hit(), m.post() );
     }
@@ -2201,32 +2211,20 @@ public class BackTrackEngine
 
     Match!String matchAt(String)( String s, size_t startPos=0 )
     {
-        auto program = _re.program;
-
-        _captures[] = size_t.max;
-
         Match!String matchData;
-
-        if( execute( 0, startPos, size_t.max, s ) )
-        {
-            matchData = Match!String( _captures, s );
-        }
-        else
-        {
-            matchData = Match!String( [], "" );
-        }
+        matchAt( s, matchData, startPos );
 
         return matchData;
     }
-
 
     void matchAt(String,MatchType)( String s, ref MatchType match, size_t startPos=0 )
     {
         auto program = _re.program;
 
-        size_t[] oldCaptures = _captures;
-        
         // Write captures directly into match
+        // Perhaps captures should be an argument instead of a member
+        //match._captures.length = 2*_numCaptures;
+        match.setNumCaptures( _numCaptures );
         _captures = match._captures;
 
         _captures[] = size_t.max;
@@ -2239,9 +2237,6 @@ public class BackTrackEngine
         {
             match._captureString = "";
         }
-
-        // restore _captures
-        _captures = oldCaptures;
     }
 
     void printProgram()
@@ -2259,7 +2254,7 @@ public class LockStepEngine
     private size_t _stringPosition;
     private size_t _currentGeneration;
     private size_t _prevGeneration; // used for decoding previous character for word boundary
-    private size_t[] _emptyCaptures;
+    //private size_t[] _emptyCaptures;
     private size_t[] _stateGenerations;
     private Regex _re;
 
@@ -2273,7 +2268,7 @@ public class LockStepEngine
         _numStates = re.numStates;
         _numCaptures = re.numCaptures;
 
-        _emptyCaptures.length = _numCaptures*2;
+        //_emptyCaptures.length = _numCaptures*2;
         _currentThreads = new Threads( _numStates, _numCaptures );
         _consumingThreads = new Threads( _numStates, _numCaptures );
         _executingThreads = new Threads( _numStates, _numCaptures );
@@ -2419,8 +2414,16 @@ public class LockStepEngine
 
     Match!String matchAt(String)( String s, size_t startPos=0 )
     {
+        Match!String matchData;
+        matchAt( s, matchData, startPos );
+
+        return matchData;
+    }
+    
+    void matchAt(String,MatchType)( String s, ref MatchType match, size_t startPos=0 )
+    {
         _stateGenerations[] = size_t.max;
-        _emptyCaptures[] = size_t.max;
+        //_emptyCaptures[] = size_t.max;
         _prevGeneration=size_t.max;
         _currentGeneration=0;
         _stringPosition=0;
@@ -2428,9 +2431,13 @@ public class LockStepEngine
         
         auto program = _re.program;
 
-        size_t[] captures = _emptyCaptures.dup;
+        //size_t[] captures = _emptyCaptures.dup;
+        match._captures.length = 2*_numCaptures;
+        size_t[] captures = match._captures;
+        match._captureString = s;
+        captures[] = size_t.max; // mark unmatched
 
-        _currentThreads.push( 0, _emptyCaptures );
+        _currentThreads.push( 0, captures );
 
         getConsumingThreads( s, captures );
 
@@ -2517,9 +2524,12 @@ public class LockStepEngine
         // Final getConsumingThreads so matches are executed after final character
         getConsumingThreads( s, captures );
         
-        Match!String matchData;
+        /*
+        //Match!String matchData;
         if ( captures[0] != size_t.max ) // If we assigned something to captures, we must have had a match
+        {
             matchData = Match!String( captures, s );
+        }
         else
         {
             captures.length = 0;
@@ -2527,6 +2537,7 @@ public class LockStepEngine
         }
                                       
         return matchData;
+        */
     }
 
     void printProgram()

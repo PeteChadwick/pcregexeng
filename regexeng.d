@@ -1696,14 +1696,36 @@ struct RegexParser
 
 BackTrackEngine btregex(String)( String s )
 {
+    // Cache last request (this technique is from std.regex)
+    static String lastReq;
+    static typeof(return) lastResult;
+    if ( lastReq == s )
+        return lastResult;
+
     auto re = new Regex(s);
-    return new BackTrackEngine(re);
+    auto result = new BackTrackEngine( re );
+
+    lastReq = cast(String) s.dup;
+    lastResult = result;
+
+    return result;
 }
 
 LockStepEngine lsregex(String)( String s )
 {
+    // Cache last request (this technique is from std.regex)
+    static String lastReq;
+    static typeof(return) lastResult;
+    if ( lastReq == s )
+        return lastResult;
+
     auto re = new Regex(s);
-    return new LockStepEngine(re);
+    auto result = new LockStepEngine( re );
+
+    lastReq = cast(String) s.dup;
+    lastResult = result;
+
+    return result;
 }
 
 

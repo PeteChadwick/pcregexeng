@@ -128,6 +128,18 @@ void main()
        writefln( "staticbt  (%s): %s ticks %s ticks/MB (%s)",
                  testName[testNum], ticks, ticks*factor, staticMatch[0] );
 
+       startTime = clock();
+       for( int i=0; i<numLoops; ++i )
+       {
+           m2 = match( textToMatch, btregex( regexStrings[testNum] ) );
+           assert( m2 );
+       }
+       endTime = clock();
+       
+       ticks = endTime-startTime;
+       writefln( "backtrack (%s): %s ticks %s ticks/MB (%s) (generating regex objects)",
+                 testName[testNum], ticks, ticks*factor, m2.captures[0] );
+
        
        startTime = clock();
        auto stdre = std.regex.regex( regexStrings[testNum] );
@@ -139,6 +151,17 @@ void main()
        
        ticks = endTime-startTime;
        writefln( "std.regex (%s): %s ticks %s ticks/MB",
+                 testName[testNum], ticks, ticks*factor  );
+
+       startTime = clock();
+       for( int i=0; i<numLoops; ++i )
+       {
+           std.regex.match( textToMatch, std.regex.regex( regexStrings[testNum] ) );
+       }
+       endTime = clock();
+       
+       ticks = endTime-startTime;
+       writefln( "std.regex (%s): %s ticks %s ticks/MB (generating regex objects)",
                  testName[testNum], ticks, ticks*factor  );
    }
 }

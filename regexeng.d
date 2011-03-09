@@ -1822,15 +1822,22 @@ public struct Match(String)
     }
 }
 
-public MatchRange!(String,Regex) match(String,Regex)( String s, Regex re )
+public MatchRange!(String,Regex,Match!String) match(String,Regex)( String s, Regex re )
 {
-    return MatchRange!(String,Regex)( s, re );
+    return MatchRange!(String,Regex,Match!String)( s, re );
+}
+
+// Match with static match object, avoiding dynamic allocations for captures
+public MatchRange!(String,Regex,Match!(String,NumCaptures))
+staticMatch( int NumCaptures, String, Regex )( String s, Regex re )
+{
+    return MatchRange!(String,Regex,Match!(String,NumCaptures))( s, re );
 }
 
 // Match with range primitives ala std.regex
-public struct MatchRange(String,RegexEngine)
+public struct MatchRange(String,RegexEngine,MatchType)
 {
-    private Match!String _match;
+    private MatchType _match;
     private RegexEngine _re;
     private String _matchString;
 
@@ -1838,7 +1845,7 @@ public struct MatchRange(String,RegexEngine)
     {
         _matchString = s;
         _re = re;
-        _match._captures.length = 2*_re._numCaptures;
+        //_match._captures.length = 2*_re._numCaptures;
 
         _re.matchAt( _matchString, _match, 0 );
     }
@@ -1866,7 +1873,7 @@ public struct MatchRange(String,RegexEngine)
         _re.matchAt( _matchString, _match, sPos );
     }
 
-    MatchRange!(String,RegexEngine) front()
+    MatchRange!(String,RegexEngine,MatchType) front()
     {
         return this;
     }
@@ -1886,19 +1893,19 @@ public struct MatchRange(String,RegexEngine)
         return _matchString[_match._captures[1]..$];
     }
     
-    @property Captures!String captures()
+    @property Captures!(String,MatchType) captures()
     {
-        return Captures!(String)(_match);
+        return Captures!(String,MatchType)(_match);
     }
 }
 
 // Range interface for match captures
-public struct Captures(String)
+public struct Captures(String,MatchType)
 {
-    private Match!String _match;
+    private MatchType _match;
     int _captureNum=0;
 
-    this( Match!String match )
+    this( MatchType match )
     {
         _match = match;
     }
@@ -2849,12 +2856,12 @@ unittest
     assert( !lsregex( "^yum$" ).matchAt( "yuck\nyum\nyuck" ) );
     assert( !btregex( "^yum$" ).matchAt( "yuck\nyum\nyuck" ) );
 
-    Match!(string,2) staticMatch;
-    btregex( ".*(yum).*" ).matchAt( "yuckyumyuck", staticMatch );
+    Match!(string,2) staticm;
+    btregex( ".*(yum).*" ).matchAt( "yuckyumyuck", staticm );
 
-    assert( staticMatch );
-    assert( staticMatch[0] == "yuckyumyuck" );
-    assert( staticMatch[1] == "yum" );
+    assert( staticm );
+    assert( staticm[0] == "yuckyumyuck" );
+    assert( staticm[1] == "yum" );
 
     // Non ascii characters
     assert( lsregex( "こ(.*)" ).matchAt( "こんにちは" )[1] == "んにちは" );
@@ -2888,4 +2895,7 @@ unittest
     assert( match( "こんにちは 𪛖"d, btregex( "こんにちは 𪛖" ) ) );
     assert( match( "こんにちは 𪛖"d, btregex( "こんにちは 𪛖"w ) ) );
     assert( match( "こんにちは 𪛖"d, btregex( "こんにちは 𪛖"d ) ) );
+
+    // Static match
+    assert( staticMatch!1( "こんにちは 𪛖"d, btregex( "こんにちは 𪛖"d ) ) );
 }

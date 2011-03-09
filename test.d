@@ -85,27 +85,26 @@ void main()
            writefln( "Text: %s", textToMatch );
 
        auto re = lsregex( regexStrings[testNum] );
+       auto m1 = match( textToMatch, re );
        //re.printProgram();
        auto startTime = clock();
-       Match!string m;
-       MatchRange!(string,BackTrackEngine) m2;
+
        for( int i=0; i<numLoops; ++i )
        {
-           m = re.matchAt( textToMatch );
-           assert( m );
+           m1 = match( textToMatch, re );
+           assert( m1 );
        }
        auto endTime = clock();
        auto ticks = endTime-startTime;
        writefln( "lockstep  (%s): %s ticks  %s ticks/MB (%s)",
-                 testName[testNum],ticks, ticks*factor, m[0] );
+                 testName[testNum],ticks, ticks*factor, m1.captures[0] );
 
        auto btre = btregex( regexStrings[testNum] );
-
+       auto m2 = match( textToMatch, btre );
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
            m2 = match( textToMatch, btre );
-           //m = btre.matchAt( regexTextToMatch[testNum] );
            assert( m2 );
        }
        endTime = clock();
@@ -115,18 +114,18 @@ void main()
                  testName[testNum], ticks, ticks*factor, m2.captures[0] );
 
        // We know we aren't using more than 4 captures in this test
-       Match!(string,4) staticMatch;
+       auto m3 = staticMatch!4( textToMatch, btre );
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
-           btre.matchAt( textToMatch, staticMatch );
-           assert( staticMatch );
+           m3 = staticMatch!4( textToMatch, btre );
+           assert( m3 );
        }
        endTime = clock();
        
        ticks = endTime-startTime;
        writefln( "staticbt  (%s): %s ticks %s ticks/MB (%s)",
-                 testName[testNum], ticks, ticks*factor, staticMatch[0] );
+                 testName[testNum], ticks, ticks*factor, m3.captures[0] );
 
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
@@ -143,26 +142,27 @@ void main()
        
        startTime = clock();
        auto stdre = std.regex.regex( regexStrings[testNum] );
+       auto m4 = std.regex.match( textToMatch, stdre );
        for( int i=0; i<numLoops; ++i )
        {
-           std.regex.match( textToMatch, stdre );
+           m4 = std.regex.match( textToMatch, stdre );
        }
        endTime = clock();
        
        ticks = endTime-startTime;
-       writefln( "std.regex (%s): %s ticks %s ticks/MB",
-                 testName[testNum], ticks, ticks*factor  );
+       writefln( "std.regex (%s): %s ticks %s ticks/MB (%s)",
+                 testName[testNum], ticks, ticks*factor, m4.captures[0]  );
 
        startTime = clock();
        for( int i=0; i<numLoops; ++i )
        {
-           std.regex.match( textToMatch, std.regex.regex( regexStrings[testNum] ) );
+           m4 = std.regex.match( textToMatch, std.regex.regex( regexStrings[testNum] ) );
        }
        endTime = clock();
        
        ticks = endTime-startTime;
-       writefln( "std.regex (%s): %s ticks %s ticks/MB (generating regex objects)",
-                 testName[testNum], ticks, ticks*factor  );
+       writefln( "std.regex (%s): %s ticks %s ticks/MB (%s) (generating regex objects)",
+                 testName[testNum], ticks, ticks*factor, m4.captures[0]  );
    }
 }
 

@@ -1925,7 +1925,7 @@ public struct Captures(String,MatchType)
             return false;
     }
 
-    @property void popFront()
+    void popFront()
     {
         assert(!empty);
         ++_captureNum;
@@ -1936,6 +1936,7 @@ public struct Captures(String,MatchType)
         return _match[_captureNum];
     }
 
+    // This should be the number of captures that aren't size_t.max
     @property size_t length()
     {
         return _match.length;

@@ -650,6 +650,26 @@ private struct RegexParser
                    bool, "Ungreedy", 1,  // unused
                    bool, "FixedLength", 1, // For lookbehind
                    uint, "", 4 ));
+        
+        RegexFlags getFromString( string flagStr )
+        {
+            RegexFlags flags;
+            
+            if ( flagStr == null )
+                return flags;
+            
+            foreach( c; flagStr )
+            {
+                if ( c == 'i' )
+            flags.CaseInsensitive = true;
+                else if ( c == 'm' )
+            flags.MultiLine = true;
+                else
+                    throw new Exception( "Unknown flag: " ~ c );
+            }
+            
+            return flags;
+        }
     }
 
     int fixedCharStack[];
@@ -685,11 +705,6 @@ private struct RegexParser
     // Make flags a default parameter?
     this(String)( String s, RegexFlags reFlags )
     {
-        //RegexFlags reFlags;
-        reFlags.CaseInsensitive = false;
-        reFlags.MultiLine = false;
-        reFlags.Ungreedy = false;
-
         fixedCharStack = [];
 
         // Add ungreedy .* at the beginning to find matches after the
@@ -1723,58 +1738,63 @@ private struct RegexParser
 
 
 /++
- Creates a back tracking regular expression engine
+ Functions to create regular expression engines.
+
+ $(DL
+ $(DT btregex) $(DD Creates a back tracking regular expression engine.)
+ $(DT lsregex) $(DD Create a Thompson style regular expression engine.)
+ $(DT regex) $(DD An alias for the btregex function.))
 
  Params:
    s = The regular expression
+   flags = Regular expression flags:
+           $(DL
+             $(DT i) $(DD Case insensitive)
+             $(DT m) $(DD Multi line mode))
 
  Returns: The regular expression engine
 +/
-BackTrackEngine btregex(String)( String s )
+BackTrackEngine btregex(String)( String s, string flags = null )
 {
     // Cache last request (this technique is from std.regex)
     static String lastReq;
+    static string lastFlags;
     static typeof(return) lastResult;
-    if ( lastReq == s )
+    if ( lastReq == s && lastFlags == flags )
         return lastResult;
 
-    auto re = new Regex(s);
+    auto re = new Regex( s, flags );
     auto result = new BackTrackEngine( re );
 
     lastReq = cast(String) s.dup;
+    lastFlags = cast(string) flags.dup;
     lastResult = result;
 
     return result;
 }
 
-// BackTrackEngine is the default
-alias btregex regex;
-
-/++
- Create a Thompson style regular expression engine
-
- Params:
-   s = The regular expression
-
- Returns: The regular expression engine
-+/
-LockStepEngine lsregex(String)( String s )
+/// Ditto
+LockStepEngine lsregex(String)( String s, string flags = null )
 {
     // Cache last request (this technique is from std.regex)
     static String lastReq;
+    static string lastFlags;
     static typeof(return) lastResult;
-    if ( lastReq == s )
+    if ( lastReq == s && lastFlags == flags)
         return lastResult;
 
-    auto re = new Regex(s);
+    auto re = new Regex( s, flags );
     auto result = new LockStepEngine( re );
 
     lastReq = cast(String) s.dup;
+    lastFlags = cast(string) flags.dup;
     lastResult = result;
 
     return result;
 }
 
+/// Ditto
+alias btregex regex;
 
 
 /++
@@ -1906,9 +1926,16 @@ public struct Match(String,int NumCaptures)
  Returns:
    The MatchRange object
 
- Example:
+ Examples:
  ----
- foreach( m; match( "She sells sea shells on the sea shore"d, btregex( `\b(?i)s\w+` ) ) )
+ // Evaluates to boolean for conditional expressions
+ auto m = match( "Hello", regex( "H(.*)o" ) );
+
+ // Retrieve captures subexpressions
+ assert( m.captures[1] == "ell" );
+
+ // Iterate over matches with range interface
+ foreach( m; match( "She sells sea shells on the sea shore", regex( `\b(?i)s\w+` ) ) )
  {
      writefln( "%s[%s]%s", m.pre(), m.hit(), m.post() );
  }
@@ -1933,7 +1960,7 @@ public MatchRange!(String,Regex,Match!String) match(String,Regex)( String s, Reg
 
  Example:
  ----
- auto sm = staticMatch!3( "123.456"d, btregex( `([0-9]+)\.([0-9]+)` ) );
+ auto sm = staticMatch!3( "123.456", btregex( `([0-9]+)\.([0-9]+)` ) );
  assert( sm.captures[0] == "123.456" );
  assert( sm.captures[1] == "123" );
  assert( sm.captures[2] == "456" );
@@ -2838,6 +2865,21 @@ public class Regex
         initialize( s );
     }
 
+    this( string s, string flags )
+    {
+        initialize( s, flags );
+    }
+
+    this( wstring s, string flags )
+    {
+        initialize( s, flags );
+    }
+
+    this( dstring s, string flags )
+    {
+        initialize( s, flags );
+    }
+
     static Regex opCall(String)( String s )
     {
         Regex re = new Regex();
@@ -2849,6 +2891,7 @@ public class Regex
     void initialize(String)(String s, string attributes = null )
     {
         RegexParser.RegexFlags reFlags;
+        reFlags = reFlags.getFromString( attributes );
         auto parser = RegexParser( s, reFlags );
         program = parser.program;
         numCaptures = parser.numCaptures;
@@ -3018,4 +3061,8 @@ unittest
     assert( sm.captures[0] == "123.456" );
     assert( sm.captures[1] == "123" );
     assert( sm.captures[2] == "456" );
+
+    // Flags
+    assert( match( "A", regex( "a", "i" ) ) );
+    assert( match( "yuck\nyum\nyuck", regex( "^yum$", "m" ) ) );
 }

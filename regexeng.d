@@ -2,7 +2,9 @@
   Regex engine based on ideas in Russ Cox's regex article:
   $(LINK http://swtch.com/~rsc/regexp/regexp2.html)
 
-  Some implementation details and range API derived from std.regex
+  The Range based API is modelled on the std.regex library by Walter
+  Bright and Andrei Alexandrescu. Some implementation ideas, such as
+  the character bitmap instruction are also based on std.regex.
 
   Author: Peter Chadwick
 
@@ -37,6 +39,8 @@
     2011-02    Replaced recursive calls with loops
 
     2011-02    Add backtracking engine
+
+    2011-03    Add some documentation
 +/
 
 module petec.regexeng;
@@ -1743,6 +1747,9 @@ BackTrackEngine btregex(String)( String s )
     return result;
 }
 
+// BackTrackEngine is the default
+alias btregex regex;
+
 /++
  Create a Thompson style regular expression engine
 
@@ -2090,25 +2097,20 @@ public struct Captures(String,MatchType)
 
 unittest
 {
-    foreach( m; match( "aaa", btregex( "." ) ) )
+    auto hits = [ "She", "sells", "sea", "shells", "sea", "shore" ];
+
+    int idx=0;
+    foreach( m; match( "She sells sea shells on the sea shore", btregex( `\b(?i)s\w+` ) ) )
     {
-        writefln( "match = %s[%s]%s", m.pre(), m.hit(), m.post() );
+        assert( m.captures[0] == hits[idx] );
+        ++idx;
     }
 
-    foreach( m; match( "aaa", lsregex( "." ) ) )
+    idx=0;
+    foreach( m; match( "She sells sea shells on the sea shore", lsregex( `\b(?i)s\w+` ) ) )
     {
-        writefln( "match = %s[%s]%s", m.pre(), m.hit(), m.post() );
-    }
-
-    foreach( m; match( "She sells sea shells on the sea shore"d, btregex( `\b(?i)s\w+` ) ) )
-    {
-        writefln( "match = %s[%s]%s", m.pre(), m.hit(), m.post() );
-    }
-
-    foreach( c; match( "user@domain.com",
-                       btregex(r"([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})" ) ).captures )
-    {
-        writefln( "capture = %s", c );
+        assert( m.captures[0] == hits[idx] );
+        ++idx;
     }
 }
 
@@ -2588,8 +2590,13 @@ public class LockStepEngine
 
         _stateGenerations[] = size_t.max;
         //_emptyCaptures[] = size_t.max;
-        _prevGeneration=size_t.max;
-        _currentGeneration=0;
+        _currentGeneration=startPos;
+        // Get previous position
+        if ( startPos == 0 )
+            _prevGeneration=size_t.max;
+        else
+            rDecode( s, _prevGeneration );
+
         _stringPosition=0;
         _currentThreads.clear();
         
@@ -2612,7 +2619,6 @@ public class LockStepEngine
             dchar thisChar = decode( s, nextCharIdx );
             _prevGeneration = _currentGeneration;
             _currentGeneration = nextCharIdx;
-
 
             // Execute consumingThreads 1 step, and push survivors onto _currentThreads
             for( size_t threadsIdx = 0; threadsIdx < _consumingThreads.length; ++threadsIdx )

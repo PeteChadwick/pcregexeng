@@ -1992,6 +1992,11 @@ public struct MatchRange(String,RegexEngine,MatchType)
         _re.matchAt( _matchString, _match._captures, 0 );
     }
 
+    @property MatchType match()
+    {
+        return _match;
+    }
+
     bool opCast(T)() if (is(T == bool))
     {
         return !empty;
@@ -2907,6 +2912,123 @@ public class Regex
 }
 
 
+// TODO: Add replace command
+
+private String substituteMatchCaptures( MatchType, String )( MatchType m, String s )
+{
+    String result;
+    
+    size_t idx = 0;
+    int startSeg = 0;
+    dchar c;
+    while( idx < s.length )
+    {
+        size_t oldIdx = idx;
+        c = decode( s, idx );
+        if ( c == '$' )
+        {
+            // is it escaped?
+            size_t idx2 = idx;
+            dchar c2 = decode( s, idx2 );
+            if ( c2 == '$' )
+            {
+                result ~= s[startSeg..idx]; // Include $
+                startSeg = idx2;
+                idx = startSeg;
+            }
+            else if ( c2 >= '0' && c2 <= '9' )
+            {
+                size_t numEnd = idx2;
+                while( idx2 < s.length )
+                {
+                    c2 = decode( s, idx2 );
+                    if ( c2 < '0' || c2 > '9' )
+                        break;
+                    numEnd = idx2;
+                }
+                result ~= s[startSeg..oldIdx] ~ m[ to!int( s[idx..numEnd] ) ];
+                startSeg = numEnd;
+                idx = startSeg;
+            }
+            // otherwise treat it like a plain '$'
+        }
+    }
+
+    result ~= s[startSeg..$];
+
+    return result;
+}
+
+/++
+ Replace regular expression match occurrences is string.
+
+ replace will replace all occurrences, replaceFirst replaces only the first.
+
+ Params:
+  s = The string to replace match occurrences in.
+  re = The regular expression engine
+  pattern = The replacement pattern. The codes below will be substituted:
+           $(DL
+           $(DT $n) $(DD Substitute with the nth capture)
+           $(DT $$) $(DD Outputs a single $))
+
+  
+ Returns:
+  The resulting string
+
+ Examples:
+
+ ----
+ string before = `-- '1', '2', '3', '4' --`;
+ string after = `-- "1", "2", "3", "4" --`;
+ string after2 = `-- "1", '2', '3', '4' --`;
+ assert( replace( before, regex( `'([^']+)'` ), `"$1"` ) == after );
+ assert( replaceFirst( before, regex( `'([^']+)'` ), `"$1"` ) == after2 );
+ ----
++/
+public String1 replace( String1, RegexEngine, String2 )
+    ( String1 s, RegexEngine re, String2 pattern )
+{
+    String1 result;
+    size_t prevEndMatchPos = 0;
+
+    foreach( m; match( s, re ) )
+    {
+        result ~= s[prevEndMatchPos..m.match.startMatch] ~ substituteMatchCaptures( m.match, pattern );
+        prevEndMatchPos = m.match.endMatch;
+    }
+
+    result ~= s[prevEndMatchPos..$];
+
+    return result;
+}
+
+/// Ditto
+public String1 replaceFirst( String1, RegexEngine, String2 )
+    ( String1 s, RegexEngine re, String2 pattern )
+{
+    String1 result;
+
+    auto m = match( s, re );
+
+    result ~= m.pre()
+        ~ substituteMatchCaptures( m.match, pattern )
+        ~ m.post();
+
+    return result;
+}
+
+unittest
+{
+    auto m = match( "42,5", regex( `([0-9]+),([0-9]+)` ) );
+    assert( substituteMatchCaptures( m.match, "$$-$1.$2" ) == "$-42.5" );
+
+    string before = `-- '1', '2', '3', '4' --`;
+    string after = `-- "1", "2", "3", "4" --`;
+    string after2 = `-- "1", '2', '3', '4' --`;
+    assert( replace( before, regex( `'([^']+)'` ), `"$1"` ) == after );
+    assert( replaceFirst( before, regex( `'([^']+)'` ), `"$1"` ) == after2 );
+}
 
 
 unittest
@@ -2991,6 +3113,7 @@ unittest
     // 5523
     assert( lsregex( `([\s_]|sec)` ).matchAt( "sec" )[0] == "sec" );
 
+    // Email regex from std.regex
     enum string email =
         r"([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})";
 

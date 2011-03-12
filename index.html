@@ -7,7 +7,9 @@
 Regex engine based on ideas in Russ Cox's regex article:
   <a href="http://swtch.com/~rsc/regexp/regexp2.html">http://swtch.com/~rsc/regexp/regexp2.html</a>
 <br><br>
-Some implementation details and range API derived from std.regex
+The Range based API is modelled on the std.regex library by Walter
+  Bright and Andrei Alexandrescu. Some implementation ideas, such as
+  the character bitmap instruction are also based on std.regex.
 
 <br><br>
 <b>Author:</b><br>
@@ -50,27 +52,29 @@ Boost Software License - Version 1.0 - August 17th, 2003
     2011-02    Replaced recursive calls with loops
 <br><br>
 
-    2011-02    Add backtracking engine<br><br>
+    2011-02    Add backtracking engine
+<br><br>
 
-<dl><dt><big>BackTrackEngine <u>btregex</u>(String)(String <i>s</i>);
+    2011-03    Add some documentation<br><br>
+
+<dl><dt><big>BackTrackEngine <u>btregex</u>(String)(String <i>s</i>, string <i>flags</i> = null);
+<br>LockStepEngine <u>lsregex</u>(String)(String <i>s</i>, string <i>flags</i> = null);
+<br>alias <u>regex</u>;
 </big></dt>
-<dd>Creates a back tracking regular expression engine
+<dd>Functions to create regular expression engines.
+<br><br>
+<dl><dt><u>btregex</u></dt> <dd>Creates a back tracking regular expression engine.</dd>
+ <dt>lsregex</dt> <dd>Create a Thompson style regular expression engine.</dd>
+ <dt>regex</dt> <dd>An alias for the <u>btregex</u> function.</dd></dl>
+
 <br><br>
 <b>Params:</b><br>
 <table><tr><td>s</td>
 <td>The regular expression</td></tr>
-</table><br>
-<b>Returns:</b><br>
-The regular expression engine<br><br>
-
-</dd>
-<dt><big>LockStepEngine <u>lsregex</u>(String)(String <i>s</i>);
-</big></dt>
-<dd>Create a Thompson style regular expression engine
-<br><br>
-<b>Params:</b><br>
-<table><tr><td>s</td>
-<td>The regular expression</td></tr>
+<tr><td>flags</td>
+<td>Regular expression flags:
+           <dl>            <dt>i</dt> <dd>Case insensitive</dd>
+             <dt>m</dt> <dd>Multi line mode</dd></dl></td></tr>
 </table><br>
 <b>Returns:</b><br>
 The regular expression engine<br><br>
@@ -128,8 +132,15 @@ Stores information about a regular expression match.
 The MatchRange object
 
 <br><br>
-<b>Example:</b><br>
-<pre class="d_code"> <font color=blue>foreach</font>( m; <u>match</u>( <font color=red>"She sells sea shells on the sea shore"d</font>, btregex( <font color=red>`\b(?i)s\w+`</font> ) ) )
+<b>Examples:</b><br>
+<pre class="d_code"> <font color=green>// Evaluates to boolean for conditional expressions
+</font> <font color=blue>auto</font> m = <u>match</u>( <font color=red>"Hello"</font>, regex( <font color=red>"H(.*)o"</font> ) );
+
+ <font color=green>// Retrieve captures subexpressions
+</font> <font color=blue>assert</font>( m.captures[1] == <font color=red>"ell"</font> );
+
+ <font color=green>// Iterate over matches with range interface
+</font> <font color=blue>foreach</font>( m; <u>match</u>( <font color=red>"She sells sea shells on the sea shore"</font>, regex( <font color=red>`\b(?i)s\w+`</font> ) ) )
  {
      writefln( <font color=red>"%s[%s]%s"</font>, m.pre(), m.hit(), m.post() );
  }
@@ -151,7 +162,7 @@ The MatchRange object
 <dd>Create a MatchRange object with a statically defined number of caputres.
 <br><br>
 <b>Example:</b><br>
-<pre class="d_code"> <font color=blue>auto</font> sm = <u>staticMatch</u>!3( <font color=red>"123.456"d</font>, btregex( <font color=red>`([0-9]+)\.([0-9]+)`</font> ) );
+<pre class="d_code"> <font color=blue>auto</font> sm = <u>staticMatch</u>!3( <font color=red>"123.456"</font>, btregex( <font color=red>`([0-9]+)\.([0-9]+)`</font> ) );
  <font color=blue>assert</font>( sm.captures[0] == <font color=red>"123.456"</font> );
  <font color=blue>assert</font>( sm.captures[1] == <font color=red>"123"</font> );
  <font color=blue>assert</font>( sm.captures[2] == <font color=red>"456"</font> );
@@ -216,6 +227,38 @@ Index 0 is the entire match.<br><br>
 
 </dd>
 </dl>
+</dd>
+<dt><big>String1 <u>replace</u>(String1, RegexEngine, String2)(String1 <i>s</i>, RegexEngine <i>re</i>, String2 <i>pattern</i>);
+<br>String1 <u>replaceFirst</u>(String1, RegexEngine, String2)(String1 <i>s</i>, RegexEngine <i>re</i>, String2 <i>pattern</i>);
+</big></dt>
+<dd>Replace regular expression match occurrences is string.
+<br><br>
+<u>replace</u> will <u>replace</u> all occurrences, replaceFirst replaces only the first.
+
+<br><br>
+<b>Params:</b><br>
+<table><tr><td>s</td>
+<td>The string to <u>replace</u> match occurrences in.</td></tr>
+<tr><td>re</td>
+<td>The regular expression engine</td></tr>
+<tr><td>pattern</td>
+<td>The replacement pattern. The codes below will be substituted:
+           <dl>          <dt>$n</dt> <dd>Substitute with the nth capture</dd>
+           <dt>$$</dt> <dd>Outputs a single $</dd></dl></td></tr>
+</table><br>
+<b>Returns:</b><br>
+The resulting string
+
+<br><br>
+<b>Examples:</b><br>
+<pre class="d_code"> string before = <font color=red>`-- '1', '2', '3', '4' --`</font>;
+ string after = <font color=red>`-- "1", "2", "3", "4" --`</font>;
+ string after2 = <font color=red>`-- "1", '2', '3', '4' --`</font>;
+ <font color=blue>assert</font>( <u>replace</u>( before, regex( <font color=red>`'([^']+)'`</font> ), <font color=red>`""`</font> ) == after );
+ <font color=blue>assert</font>( replaceFirst( before, regex( <font color=red>`'([^']+)'`</font> ), <font color=red>`""`</font> ) == after2 );
+</pre>
+<br><br>
+
 </dd>
 </dl>
 

@@ -1798,14 +1798,14 @@ alias btregex regex;
 
 
 /++
- Match types
+ RegexSingleMatch types
 
  Stores information about a regular expression match.
 
- If known at compile time, using a Match type parameterised on the
+ If known at compile time, using a RegexSingleMatch type parameterised on the
  number of captures avoids dynamic allocation of storage for them.
 +/
-public struct Match(String)
+public struct RegexSingleMatch(String)
 {
 
     /++
@@ -1865,14 +1865,14 @@ public struct Match(String)
     }
 }
 
-// Match could be parameterized on the number of captures if it were
+// RegexSingleMatch could be parameterized on the number of captures if it were
 // known at compile time to avoid dynamic allocation.
 // If the user knows, or knows a maximum number of captures, it can be
 // passed as a template parameter to the regex engine match function,
 // which can use the available space.
 
 /// Ditto
-public struct Match(String,int NumCaptures)
+public struct RegexSingleMatch(String,int NumCaptures)
 {
     private String _captureString;
     private size_t _captures[2*NumCaptures] = size_t.max;
@@ -1916,7 +1916,7 @@ public struct Match(String,int NumCaptures)
 
 
 /++
- Create a MatchRange object that may be used to iterate over the matches.
+ Create a RegexMatch object that may be used to iterate over the matches.
 
  Params:
    s = The string to match
@@ -1924,7 +1924,7 @@ public struct Match(String,int NumCaptures)
    re = The regular expression engine
 
  Returns:
-   The MatchRange object
+   The RegexMatch object
 
  Examples:
  ----
@@ -1950,13 +1950,13 @@ public struct Match(String,int NumCaptures)
 
  ----
  +/
-public MatchRange!(String,Regex,Match!String) match(String,Regex)( String s, Regex re )
+public RegexMatch!(String,Regex,RegexSingleMatch!String) match(String,Regex)( String s, Regex re )
 {
-    return MatchRange!(String,Regex,Match!String)( s, re );
+    return RegexMatch!(String,Regex,RegexSingleMatch!String)( s, re );
 }
 
 /++
- Create a MatchRange object with a statically defined number of caputres.
+ Create a RegexMatch object with a statically defined number of caputres.
 
  Example:
  ----
@@ -1966,19 +1966,19 @@ public MatchRange!(String,Regex,Match!String) match(String,Regex)( String s, Reg
  assert( sm.captures[2] == "456" );
  ----
 +/
-public MatchRange!(String,Regex,Match!(String,NumCaptures))
+public RegexMatch!(String,Regex,RegexSingleMatch!(String,NumCaptures))
 staticMatch( int NumCaptures, String, Regex )( String s, Regex re )
 {
-    return MatchRange!(String,Regex,Match!(String,NumCaptures))( s, re );
+    return RegexMatch!(String,Regex,RegexSingleMatch!(String,NumCaptures))( s, re );
 }
 
 // Match with range primitives ala std.regex
 /++
  Range interface for regular expression matches
 +/
-public struct MatchRange(String,RegexEngine,MatchType)
+public struct RegexMatch(String,RegexEngine,RegexSingleMatchType)
 {
-    private MatchType _match;
+    private RegexSingleMatchType _match;
     private RegexEngine _re;
     private String _matchString;
 
@@ -1992,7 +1992,7 @@ public struct MatchRange(String,RegexEngine,MatchType)
         _re.matchAt( _matchString, _match._captures, 0 );
     }
 
-    @property MatchType match()
+    @property RegexSingleMatchType match()
     {
         return _match;
     }
@@ -2025,7 +2025,7 @@ public struct MatchRange(String,RegexEngine,MatchType)
     }
 
     /// Ditto
-    MatchRange!(String,RegexEngine,MatchType) front()
+    RegexMatch!(String,RegexEngine,RegexSingleMatchType) front()
     {
         return this;
     }
@@ -2033,9 +2033,9 @@ public struct MatchRange(String,RegexEngine,MatchType)
     /++
      Get captured subexpressions
      +/
-    @property Captures!(String,MatchType) captures()
+    @property Captures!(String,RegexSingleMatchType) captures()
     {
-        return Captures!(String,MatchType)(_match);
+        return Captures!(String,RegexSingleMatchType)(_match);
     }
 
     /++
@@ -2067,12 +2067,12 @@ public struct MatchRange(String,RegexEngine,MatchType)
 /++
  Range interface for captured subexpressions of a match
  +/
-public struct Captures(String,MatchType)
+public struct Captures(String,RegexSingleMatchType)
 {
-    private MatchType _match;
+    private RegexSingleMatchType _match;
     int _captureNum=0;
 
-    this( MatchType match )
+    this( RegexSingleMatchType match )
     {
         _match = match;
     }
@@ -2413,9 +2413,9 @@ public class BackTrackEngine
         return 0;
     }
 
-    Match!String matchAt(String)( String s, size_t startPos=0 )
+    RegexSingleMatch!String matchAt(String)( String s, size_t startPos=0 )
     {
-        Match!String matchData;
+        RegexSingleMatch!String matchData;
         matchData.setNumCaptures( _re.numCaptures );
         matchData._captureString = s;
         matchAt( s, matchData._captures, startPos );
@@ -2606,9 +2606,9 @@ public class LockStepEngine
       - we'll know if we matched something if captures isn't empty
      */
 
-    Match!String matchAt(String)( String s, size_t startPos=0 )
+    RegexSingleMatch!String matchAt(String)( String s, size_t startPos=0 )
     {
-        Match!String matchData;
+        RegexSingleMatch!String matchData;
         matchData._captureString = s;
         matchData.setNumCaptures( _re.numCaptures );
         matchAt( s, matchData._captures, startPos );
@@ -2914,7 +2914,7 @@ public class Regex
 
 // TODO: Add replace command
 
-private String substituteMatchCaptures( MatchType, String )( MatchType m, String s )
+private String substituteMatchCaptures( RegexSingleMatchType, String )( RegexSingleMatchType m, String s )
 {
     String result;
     

@@ -99,7 +99,9 @@ private // Module only stuff
         BOT,
         EOT,
         WordBoundary,
-        LookAround
+        LookAround,
+        SaveProgress,
+        CheckProgress
     }
 
     struct Inst
@@ -269,6 +271,18 @@ private // Module only stuff
         size_t num;
     }
 
+    struct InstSaveProgress
+    {
+        Inst inst = { REInst.SaveProgress };
+        alias inst this;
+    }
+
+    struct InstCheckProgress
+    {
+        Inst inst = { REInst.CheckProgress };
+        alias inst this;
+    }
+
     struct Span(T)
     {
         T start;
@@ -306,6 +320,9 @@ private // Module only stuff
     {
         // assert span.start <= span.end
 
+        if ( span.start > span.end )
+            throw new Exception( "Span start > end" );
+        
         size_t i=0;
         while( i<spans.length && spans[i].start < span.start )
             ++i;
@@ -368,6 +385,19 @@ private // Module only stuff
 
         // Swap with new spans
         spans = spans2;
+    }
+
+    void Invert(T)( ref Span!T[] spans )
+    {
+        // Subtract ranges from a full range
+        Span!T[] fullRange;
+        AddSpan( fullRange, Span!T( 0, T.max ) );
+
+        foreach( ref Span!T span; spans )
+        {
+            SubSpan( fullRange, span );
+        }
+        spans = fullRange;
     }
 
     unittest
@@ -558,6 +588,16 @@ private void printProgram( byte[] program )
             writefln( "LookAround ahead:%s positive:%s distance:%s", inst.ahead, inst.positive, inst.distance );
             pos += InstLookAround.sizeof;
             break;
+
+        case REInst.SaveProgress:
+            writefln( "SaveProgress" );
+            pos += InstSaveProgress.sizeof;
+            break;
+
+        case REInst.CheckProgress:
+            writefln( "CheckProgress" );
+            pos += InstCheckProgress.sizeof;
+            break;
         }
     }
 }
@@ -636,12 +676,26 @@ private void enumerateStates( byte[] program, out size_t numStates )
         case REInst.LookAround:
             pos += InstLookAround.sizeof;
             break;
+
+        case REInst.SaveProgress:
+            pos += InstSaveProgress.sizeof;
+            break;
+
+        case REInst.CheckProgress:
+            pos += InstCheckProgress.sizeof;
+            break;
         }
     }
 }
 
 private struct RegexParser
 {
+    // Note: std.regex has a "g" flag that indicates that operations
+    // should continue after the first match. It seems to me that this
+    // shouldn't be a property of the regular expression. Instead
+    // operations should provide the option for how many matches they
+    // are applied to.
+
     struct RegexFlags
     {
         mixin( bitfields!(
@@ -840,6 +894,14 @@ private struct RegexParser
                 pos += InstLookAround.sizeof;
                 break;
 
+            case REInst.SaveProgress:
+                pos += InstSaveProgress.sizeof;
+                break;
+
+            case REInst.CheckProgress:
+                pos += InstCheckProgress.sizeof;
+                break;
+
             }
         }
     }
@@ -868,6 +930,7 @@ private struct RegexParser
         nextStart = parseConcat( pattern, reFlags );
 
         sumFixedCharStack();
+        int minFixedChar = fixedCharStack[$-1];
 
         while( nextStart != pattern.length && pattern[nextStart] == '|' )
         {
@@ -893,6 +956,10 @@ private struct RegexParser
             nextStart += parseConcat( pattern[nextStart..$], reFlags );
 
             sumFixedCharStack();
+            
+            if ( fixedCharStack[$-1] < minFixedChar )
+                minFixedChar = fixedCharStack[$-1];
+
             // Check that all alternations are the same length
             if ( reFlags.FixedLength && fixedCharStack[$-1] != fixedCharStack[$-2] )
                 throw new Exception( "Lookbehind expression not fixed length" );
@@ -903,6 +970,8 @@ private struct RegexParser
             jumpInst = cast(InstJump*)&program[jumpInstPos]; // Get the jump instruction in the program
             jumpInst.loc = program.length;
         }
+
+        fixedCharStack[$-1] = minFixedChar;
 
         return nextStart;
     }
@@ -932,19 +1001,20 @@ private struct RegexParser
         size_t progAtomStart = program.length;
         size_t end = parseAtom( pattern, reFlags );
 
-
         sumFixedCharStack();
-    
+
         // check rep character
         if ( end == pattern.length || pattern[end] == '|' || pattern[end] == ')' )
         {
             // ok
         }
         else if ( pattern[end] == '*' )
-            // a : split b, d
-            // b : atom
-            // c : jump a
-            // d : ...
+            // a : split b, f
+            // b : saveprogress
+            // c : atom
+            // d : checkprogress
+            // e : jump a
+            // f : ...
         {
             if ( reFlags.FixedLength )
                 throw new Exception( "Lookbehind expression not fixed length" );
@@ -955,22 +1025,24 @@ private struct RegexParser
             if ( pattern.length > end+1 && pattern[end+1] == '?' )
                 isGreedy = false;
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
-            if ( isGreedy )
-            {
-                splitInst.locPref = progAtomStart;
-                splitInst.locSec = program.length + InstJump.sizeof;
-            }
-            else
-            {
-                splitInst.locSec = progAtomStart;
-                splitInst.locPref = program.length + InstJump.sizeof;
-            }
+            mixin( MakeREInst( "InstSaveProgress", "saveProgressInst" ) );
+            mixin( MakeREInst( "InstCheckProgress", "checkProgressInst" ) );
+
+            splitInst.locPref = progAtomStart + InstSplit.sizeof;
+            splitInst.locSec = program.length + InstSplit.sizeof + InstSaveProgress.sizeof +
+                InstCheckProgress.sizeof + InstJump.sizeof;
+            
+            if ( !isGreedy )
+                swap( splitInst.locPref, splitInst.locSec );
+
             program = program[0..progAtomStart]
                 ~ splitInstBuf
-                ~ program[progAtomStart..$];
-            // Note: this will also fix the offsets of the split
-            // instruction itself
-            fixOffsets( program, progAtomStart, InstSplit.sizeof );
+                ~ saveProgressInstBuf
+                ~ program[progAtomStart..$]
+                ~ checkProgressInstBuf;
+
+            fixOffsets( program, progAtomStart+InstSplit.sizeof,
+                        InstSplit.sizeof + InstSaveProgress.sizeof );
 
             // Jump
             program.length += InstJump.sizeof;
@@ -983,9 +1055,11 @@ private struct RegexParser
                 end += 1;
         }
         else if ( pattern[end] == '+' )
-            // a : atom
-            // b : split a, c
-            // c : ...
+            // a : saveprogress
+            // b : atom
+            // c : checkprogress
+            // d : split a, e
+            // e : ...
         {
             if ( reFlags.FixedLength )
                 throw new Exception( "Lookbehind expression not fixed length" );
@@ -995,17 +1069,23 @@ private struct RegexParser
                 isGreedy = false;
 
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
-            if ( isGreedy )
-            {
-                splitInst.locPref = progAtomStart;
-                splitInst.locSec = program.length + InstSplit.sizeof;
-            }
-            else
-            {
-                splitInst.locSec = progAtomStart;
-                splitInst.locPref = program.length + InstSplit.sizeof;
-            }
-            program ~= splitInstBuf;
+            mixin( MakeREInst( "InstSaveProgress", "saveProgressInst" ) );
+            mixin( MakeREInst( "InstCheckProgress", "checkProgressInst" ) );
+
+            splitInst.locPref = progAtomStart;
+            splitInst.locSec = program.length + InstSaveProgress.sizeof + 
+                InstCheckProgress.sizeof + InstSplit.sizeof;
+
+            fixOffsets( program, progAtomStart, InstSaveProgress.sizeof );
+
+            if ( !isGreedy )
+                swap( splitInst.locPref, splitInst.locSec );
+
+            program = program[0..progAtomStart]
+                ~ saveProgressInstBuf
+                ~ program[progAtomStart..$]
+                ~ checkProgressInstBuf
+                ~ splitInstBuf;
 
             end += 1;
         }
@@ -1165,7 +1245,9 @@ private struct RegexParser
         RegexFlags newReFlags = reFlags;
 
         size_t newEnd = end;
-        if ( decode( pattern, newEnd ) == '?' )
+        dchar firstChar = decode( pattern, newEnd );
+        
+        if ( firstChar == '?' )
         {
             // TODO: Look for flags
             // TODO: Make this a function so it can be called from the constructor
@@ -1261,7 +1343,9 @@ private struct RegexParser
             fixedCharStack ~= -1;
         }
 
+        size_t oldEnd = end;
         end += parseRegex( pattern[end..$], newReFlags );
+
         if ( end == pattern.length )
         {
             throw new Exception( "parseGroup error: Expected )" );
@@ -1325,23 +1409,29 @@ private struct RegexParser
 
         dchar c;
         dchar prevc;
-        while( end < pattern.length && pattern[end] != ']' )
+        while( end < pattern.length && ( pattern[end] != ']' || end == patternStart ) )
         {
             prevc = c;
+            size_t cPos = end; // remember position before decoding
             c = decode( pattern, end ); // Advances end
-            if ( c == '-' && end > patternStart )
+            if ( c == '-' && cPos > patternStart )
             {
                 // get next character
                 c = decode( pattern, end );
-                
+
                 // if '-' is the last character, add it instead of a span
                 if ( c == ']' )
                 {
-                    AddSpan( charRanges, Span!dchar( prevc, prevc ) );
+                    AddSpan( charRanges, Span!dchar( '-', '-' ) );
                     end -= 1; // rewind so we parse the ']'
                 }
                 else
                     AddSpan( charRanges, Span!dchar( prevc, c ) );
+            }
+            else if ( cPos == patternStart &&
+                      ( c == '[' || c == ']' ) )
+            {
+                AddSpan( charRanges, Span!dchar( c, c ) );
             }
             else if ( c == '\\' )
             {
@@ -1508,28 +1598,29 @@ private struct RegexParser
         switch( escChar )
         {
         case 'd':
-            AddSpan( charRanges, Span!dchar( '0', '9' ) );
-            break;
         case 'D':
-            AddSpan( charRanges, Span!dchar( '0'-1, '9'+1 ) );
+            AddSpan( charRanges, Span!dchar( '0', '9' ) );
+            if ( escChar == 'D' )
+                Invert( charRanges );
             break;
         case 's':
+        case 'S':
+            AddSpan( charRanges, Span!dchar( ' ', ' ' ) );
             AddSpan( charRanges, Span!dchar( '\t', '\t' ) );
             AddSpan( charRanges, Span!dchar( '\n', '\n' ) );
             AddSpan( charRanges, Span!dchar( '\f', '\f' ) );
             AddSpan( charRanges, Span!dchar( '\r', '\r' ) );
+            if ( escChar == 'S' )
+                Invert( charRanges );
             break;
         case 'w':
+        case 'W':
             AddSpan( charRanges, Span!dchar( '0', '9' ) );
             AddSpan( charRanges, Span!dchar( 'A', 'Z' ) );
             AddSpan( charRanges, Span!dchar( 'a', 'z' ) );
+            if ( escChar == 'W' )
+                Invert( charRanges );
             break;
-        case 'W':
-            AddSpan( charRanges, Span!dchar( '0'-1, '9'+1 ) );
-            AddSpan( charRanges, Span!dchar( 'A'-1, 'Z'+1 ) );
-            AddSpan( charRanges, Span!dchar( 'a'-1, 'z'+1 ) );
-            break;
-            
                 
             // Single characters
         default:
@@ -1581,7 +1672,10 @@ private struct RegexParser
             parseSet( "[^0-9]", reFlags );
             break;
         case 's':
-            parseSet( "[\t\n\f\r]", reFlags );
+            parseSet( "[ \t\n\f\r]", reFlags );
+            break;
+        case 'S':
+            parseSet( "[^ \t\n\f\r]", reFlags );
             break;
         case 'w':
             parseSet( "[0-9A-Za-z_]", reFlags );
@@ -1678,7 +1772,9 @@ private struct RegexParser
             fixedCharStack ~= 1;
 
             if ( s.length == 1 )
-                writefln( "parseAtom error escape character" );
+            {
+                throw new Exception( "parseAtom error excpected escaped character" ~ to!string(c) );
+            }
             decode( s, end ); // Advances end
 
             dchar escChar = decode( s, end );
@@ -1713,6 +1809,10 @@ private struct RegexParser
                 mixin( MakeREInst( "InstEOT", "eotInst" ) );
                 program ~= eotInstBuf;
             }
+        }
+        else if ( c == '*' || c == '+' || c == '?' || c == ')' )
+        {
+            throw new Exception( "Illegal character: " ~ to!string(c) );
         }
         else // Character
         {
@@ -2038,6 +2138,10 @@ public struct RegexMatch(String,RegexEngine,RegexSingleMatchType)
         return Captures!(String,RegexSingleMatchType)(_match);
     }
 
+    // Note: Should opIndex be defined as a more direct way to get
+    // subexpressions, or would that be too confusing given RegexMatch
+    // is a range?
+
     /++
      Return the portion of the string before the match
      +/
@@ -2201,127 +2305,144 @@ public class BackTrackEngine
         _re = re;
     }
 
-    int execute(String)( size_t pc, size_t sPos, size_t prevSPos, String s, size_t[] captures )
+    private struct ExecState(String)
+    {
+        size_t pc;
+        size_t sPos;
+        size_t prevSPos;
+        String s;
+        size_t[] captures;
+    }
+    
+    //int execute(String)( size_t pc, size_t sPos, size_t prevSPos, String s, size_t[] captures )
+    int execute(String)( ref ExecState!String state )
     {
         auto program = _re.program;
 
         for( ;; )
         {
-            Inst* inst = cast(Inst*)&program[pc];
+            Inst* inst = cast(Inst*)&program[state.pc];
 
             final switch( inst.type )
             {
             case REInst.Char:
-                if ( sPos == s.length )
+                if ( state.sPos == state.s.length )
                     return 0;
-                // get next character and advance sPos
-                prevSPos = sPos;
-                dchar thisChar = decode( s, sPos );
+                // get next character and advance state.sPos
+                state.prevSPos = state.sPos;
+                dchar thisChar = decode( state.s, state.sPos );
                 auto instChar = cast(InstChar*)inst;
                 if ( instChar.c != thisChar )
                     return 0;
 
-                pc += InstChar.sizeof;
+                state.pc += InstChar.sizeof;
                 break;
 
             case REInst.IChar:
-                if ( sPos == s.length )
+                if ( state.sPos == state.s.length )
                     return 0;
-                // get next character and advance sPos
-                prevSPos = sPos;
-                dchar thisChar = decode( s, sPos );
+                // get next character and advance state.sPos
+                state.prevSPos = state.sPos;
+                dchar thisChar = decode( state.s, state.sPos );
                 auto instIChar = cast(InstIChar*)inst;
                 if ( instIChar.c != tolower(thisChar) )
                     return 0;
 
-                pc += InstIChar.sizeof;
+                state.pc += InstIChar.sizeof;
 
                 break;
 
             case REInst.AnyChar:
-                if ( sPos == s.length )
+                if ( state.sPos == state.s.length )
                     return 0;
-                // get next character and advance sPos
-                prevSPos = sPos;
-                dchar thisChar = decode( s, sPos );
-                pc += InstAnyChar.sizeof;
+                // get next character and advance state.sPos
+                state.prevSPos = state.sPos;
+                dchar thisChar = decode( state.s, state.sPos );
+                state.pc += InstAnyChar.sizeof;
 
                 break;
 
             case REInst.CharRange:
                 auto instCharRange = cast(InstCharRange*)inst;
-                if ( sPos == s.length )
+                if ( state.sPos == state.s.length )
                     return 0;
-                // get next character and advance sPos
-                prevSPos = sPos;
-                dchar thisChar = decode( s, sPos );
+                // get next character and advance state.sPos
+                state.prevSPos = state.sPos;
+                dchar thisChar = decode( state.s, state.sPos );
 
                 if ( ! ( thisChar >= instCharRange.span.start &&
                          thisChar <= instCharRange.span.end )  )
                     return 0;
 
-                pc += InstCharRange.sizeof;
+                state.pc += InstCharRange.sizeof;
 
                 break;
 
             case REInst.ICharRange:
                 auto instICharRange = cast(InstICharRange*)inst;
-                if ( sPos == s.length )
+                if ( state.sPos == state.s.length )
                     return 0;
-                // get next character and advance sPos
-                prevSPos = sPos;
-                dchar thisChar = tolower( decode( s, sPos ) );
+                // get next character and advance state.sPos
+                state.prevSPos = state.sPos;
+                dchar thisChar = tolower( decode( state.s, state.sPos ) );
 
                 if ( ! ( thisChar >= instICharRange.span.start &&
                          thisChar <= instICharRange.span.end )  )
                     return 0;
 
-                pc += InstICharRange.sizeof;
+                state.pc += InstICharRange.sizeof;
 
                 break;
 
             case REInst.CharBitmap:
                 auto instCharBitmap = cast(InstCharBitmap*)inst;
-                if ( sPos == s.length )
+                if ( state.sPos == state.s.length )
                     return 0;
-                // get next character and advance sPos
-                prevSPos = sPos;
-                dchar thisChar = decode( s, sPos );
+                // get next character and advance state.sPos
+                state.prevSPos = state.sPos;
+                dchar thisChar = decode( state.s, state.sPos );
 
                 if ( !(*instCharBitmap)[thisChar] )
                     return 0;
                     
-                pc += InstCharBitmap.sizeof;
+                state.pc += InstCharBitmap.sizeof;
 
                 break;
 
             case REInst.Save:
                 auto instSave = cast(InstSave*)inst;
                     
-                size_t oldCapture = captures[instSave.num];
-                captures[instSave.num] = sPos;
+                size_t oldCapture = state.captures[instSave.num];
+                state.captures[instSave.num] = state.sPos;
 
-                pc += InstSave.sizeof;
-                if ( execute( pc, sPos, prevSPos, s, captures ) )
+                state.pc += InstSave.sizeof;
+                ExecState!String savedState = state;
+                //if ( execute( state.pc, state.sPos, state.prevSPos, s, state.captures ) )
+                if ( execute( state ) )
                     return 1;
 
+                state = savedState;
                 // Restore old capture if thread has failed
-                captures[instSave.num] = oldCapture;
+                state.captures[instSave.num] = oldCapture;
                 return 0;
 
                 break;
 
             case REInst.Split:
                 auto instSplit = cast(InstSplit*)inst;
-                if ( execute( instSplit.locPref, sPos, prevSPos, s, captures ) )
+                //if ( execute( instSplit.locPref, state.sPos, state.prevSPos, s, state.captures ) )
+                ExecState!String savedState = state;
+                state.pc = instSplit.locPref;
+                if ( execute( state ) )
                     return 1;
-                pc = instSplit.locSec;
+                state = savedState;
+                state.pc = instSplit.locSec;
 
                 break;
 
             case REInst.Jump:
                 auto instJump = cast(InstJump*)inst;
-                pc = instJump.loc;
+                state.pc = instJump.loc;
 
                 break;
 
@@ -2329,41 +2450,41 @@ public class BackTrackEngine
                 return 1;
 
             case REInst.BOL:
-                if ( !isNewLineChar( s, prevSPos ) )
+                if ( !isNewLineChar( state.s, state.prevSPos ) )
                     return 0;
 
-                pc += InstBOL.sizeof;
+                state.pc += InstBOL.sizeof;
                 break;
 
             case REInst.EOL:
-                if ( !isNewLineChar( s, sPos ) )
+                if ( !isNewLineChar( state.s, state.sPos ) )
                     return 0;
 
-                pc += InstEOL.sizeof;
+                state.pc += InstEOL.sizeof;
                 break;
 
             case REInst.BOT:
-                if ( sPos != 0 )
+                if ( state.sPos != 0 )
                     return 0;
 
-                pc += InstBOL.sizeof;
+                state.pc += InstBOL.sizeof;
                 break;
 
             case REInst.EOT:
-                if ( sPos != s.length )
+                if ( state.sPos != state.s.length )
                     return 0;
 
-                pc += InstEOL.sizeof;
+                state.pc += InstEOL.sizeof;
                 break;
 
             case REInst.WordBoundary:
                 bool result=false;
                         
-                if( isWordChar( s, prevSPos ) &&
-                    !isWordChar( s, sPos ) )
+                if( isWordChar( state.s, state.prevSPos ) &&
+                    !isWordChar( state.s, state.sPos ) )
                     result = true;
-                else if ( !isWordChar( s, prevSPos ) &&
-                          isWordChar( s, sPos ) )
+                else if ( !isWordChar( state.s, state.prevSPos ) &&
+                          isWordChar( state.s, state.sPos ) )
                     result = true;
 
                 auto instWordBoundary = cast(InstWordBoundary*)inst;
@@ -2371,29 +2492,33 @@ public class BackTrackEngine
                 if ( result != instWordBoundary.positiveFlag )
                     return 0;
 
-                pc += InstWordBoundary.sizeof;
+                state.pc += InstWordBoundary.sizeof;
                 break;
 
             case REInst.LookAround:
-                pc += InstLookAround.sizeof;
+                state.pc += InstLookAround.sizeof;
                 auto instLookAround = cast(InstLookAround*)inst;
                 
                 if ( instLookAround.ahead )
                 {
-                    if ( execute( pc, sPos, prevSPos, s, captures ) != instLookAround.positive )
+                    //if ( execute( state.pc, state.sPos, state.prevSPos, state.s, state.captures ) != instLookAround.positive )
+                    ExecState!String savedState = state;
+                    if ( execute( state ) != instLookAround.positive )
                         return 0;
 
-                    pc = instLookAround.jumpLoc;
+                    state = savedState;
+                    state.pc = instLookAround.jumpLoc;
                 }
                 else
                 {
+                    ExecState!String savedState = state;
 
-                    size_t shiftedSPos = sPos;
+                    size_t shiftedSPos = state.sPos;
                     size_t shiftedPrevSPos;
 
                     for( int i=0; i<instLookAround.distance; ++i )
                     {
-                        if( !rDecode( s, shiftedSPos ) )
+                        if( !rDecode( state.s, shiftedSPos ) )
                             return false;
                     }
                     if ( shiftedSPos == 0 )
@@ -2401,11 +2526,29 @@ public class BackTrackEngine
                     else
                         shiftedPrevSPos = shiftedSPos - 1;
                     
-                    if ( execute( pc, shiftedSPos, shiftedPrevSPos, s, captures ) != instLookAround.positive )
+                    //if ( execute( state.pc, shiftedSPos, shiftedPrevSPos, state.s, state.captures ) != instLookAround.positive )
+                    state.sPos = shiftedSPos;
+                    state.prevSPos = shiftedPrevSPos;
+                    if ( execute( state ) != instLookAround.positive )
                         return 0;
-                    pc = instLookAround.jumpLoc;
+                    state = savedState;
+                    state.pc = instLookAround.jumpLoc;
                 }
 
+                break;
+
+            case REInst.SaveProgress:
+                state.pc += InstSaveProgress.sizeof;
+                ExecState!String savedState = state;
+                //writefln( "SaveProgress" );
+                int result = execute( state );
+                if ( result == 0 || state.sPos == savedState.sPos )
+                    return 0;
+                break;
+                
+            case REInst.CheckProgress:
+                state.pc += InstCheckProgress.sizeof;
+                return 1;
                 break;
             }
         }
@@ -2430,7 +2573,9 @@ public class BackTrackEngine
         assert( captures.length >= _re.numCaptures );
 
         captures[] = size_t.max;
-        execute( 0, startPos, size_t.max, s, captures );
+        ExecState!String state = ExecState!String( 0, startPos, size_t.max, s, captures );
+        execute( state );
+        //execute( 0, startPos, size_t.max, s, captures );
     }
 
     void printProgram()
@@ -2588,6 +2733,15 @@ public class LockStepEngine
 
                     case REInst.LookAround:
                         throw new Exception( "LookAround not supported by lockstep engine" );
+
+                    // Ignore Progress instructions
+                    case REInst.SaveProgress:
+                        _executingThreads.pc = pc + InstSaveProgress.sizeof;
+                        break;
+                        
+                    case REInst.CheckProgress:
+                        _executingThreads.pc = pc + InstSaveProgress.sizeof;
+                        break;
                     }
                 }
                 else // Pop instruction we've already done
@@ -2713,6 +2867,15 @@ public class LockStepEngine
                     throw new Exception( "Unexpected instruction" );
                 case REInst.LookAround:
                     throw new Exception( "LookAround not supported by lockstep engine" );
+                    
+                    // Ignore Progress instructions
+                case REInst.SaveProgress:
+                    _executingThreads.pc = pc + InstSaveProgress.sizeof;
+                    break;
+                    
+                case REInst.CheckProgress:
+                    _executingThreads.pc = pc + InstSaveProgress.sizeof;
+                    break;
                 }
             }
             
@@ -2905,14 +3068,10 @@ public class Regex
 
     void printProgram()
     {
-        writefln( "Hello" );
         .printProgram( program );
     }
 
 }
-
-
-// TODO: Add replace command
 
 private String substituteMatchCaptures( RegexSingleMatchType, String )( RegexSingleMatchType m, String s )
 {
@@ -3034,6 +3193,7 @@ unittest
 unittest
 {
     auto re = Regex( r".*" );
+    re.printProgram();
     auto eng = new LockStepEngine( re );
     assert( eng.matchAt( "a" ) );
     auto bteng = new BackTrackEngine( re );
@@ -3188,4 +3348,321 @@ unittest
     // Flags
     assert( match( "A", regex( "a", "i" ) ) );
     assert( match( "yuck\nyum\nyuck", regex( "^yum$", "m" ) ) );
+}
+
+// The unit tests below are copied from std.regex, and the following
+// copyright notices apply.
+
+// Notes: Unit tests with backreferences have been commented out as they
+// are not supported at this time.
+
+/*
+ *  Copyright (C) 2000-2005 by Digital Mars, www.digitalmars.com
+ *  Written by Walter Bright and Andrei Alexandrescu
+ *
+ *  This software is provided 'as-is', without any express or implied
+ *  warranty. In no event will the authors be held liable for any damages
+ *  arising from the use of this software.
+ *
+ *  Permission is granted to anyone to use this software for any purpose,
+ *  including commercial applications, and to alter it and redistribute it
+ *  freely, subject to the following restrictions:
+ *
+ *  o  The origin of this software must not be misrepresented; you must not
+ *     claim that you wrote the original software. If you use this software
+ *     in a product, an acknowledgment in the product documentation would be
+ *     appreciated but is not required.
+ *  o  Altered source versions must be plainly marked as such, and must not
+ *     be misrepresented as being the original software.
+ *  o  This notice may not be removed or altered from any source
+ *     distribution.
+ */
+
+/* The test vectors in this file are altered from Henry Spencer's regexp
+   test code. His copyright notice is:
+
+        Copyright (c) 1986 by University of Toronto.
+        Written by Henry Spencer.  Not derived from licensed software.
+
+        Permission is granted to anyone to use this software for any
+        purpose on any computer system, and to redistribute it freely,
+        subject to the following restrictions:
+
+        1. The author is not responsible for the consequences of use of
+                this software, no matter how awful, even if they arise
+                from defects in it.
+
+        2. The origin of this software must not be misrepresented, either
+                by explicit claim or by omission.
+
+        3. Altered versions must be plainly marked as such, and must not
+                be misrepresented as being the original software.
+
+
+ */
+
+import std.typetuple;
+
+unittest
+{
+    struct TestVectors
+    {
+        string pattern;
+        string input;
+        string result;
+        string format;
+        string replace;
+    };
+
+    static TestVectors tv[] = [
+// backreferences not supported
+//        {  "(a)\\1",    "abaab","y",    "&",    "aa" },
+        {  "abc",       "abc",  "y",    "&",    "abc" },
+        {  "abc",       "xbc",  "n",    "-",    "-" },
+        {  "abc",       "axc",  "n",    "-",    "-" },
+        {  "abc",       "abx",  "n",    "-",    "-" },
+        {  "abc",       "xabcy","y",    "&",    "abc" },
+        {  "abc",       "ababc","y",    "&",    "abc" },
+        {  "ab*c",      "abc",  "y",    "&",    "abc" },
+        {  "ab*bc",     "abc",  "y",    "&",    "abc" },
+        {  "ab*bc",     "abbc", "y",    "&",    "abbc" },
+        {  "ab*bc",     "abbbbc","y",   "&",    "abbbbc" },
+        {  "ab+bc",     "abbc", "y",    "&",    "abbc" },
+        {  "ab+bc",     "abc",  "n",    "-",    "-" },
+        {  "ab+bc",     "abq",  "n",    "-",    "-" },
+        {  "ab+bc",     "abbbbc","y",   "&",    "abbbbc" },
+        {  "ab?bc",     "abbc", "y",    "&",    "abbc" },
+        {  "ab?bc",     "abc",  "y",    "&",    "abc" },
+        {  "ab?bc",     "abbbbc","n",   "-",    "-" },
+        {  "ab?c",      "abc",  "y",    "&",    "abc" },
+        {  "^abc$",     "abc",  "y",    "&",    "abc" },
+        {  "^abc$",     "abcc", "n",    "-",    "-" },
+        {  "^abc",      "abcc", "y",    "&",    "abc" },
+        {  "^abc$",     "aabc", "n",    "-",    "-" },
+        {  "abc$",      "aabc", "y",    "&",    "abc" },
+        {  "^", "abc",  "y",    "&",    "" },
+        {  "$", "abc",  "y",    "&",    "" },
+        {  "a.c",       "abc",  "y",    "&",    "abc" },
+        {  "a.c",       "axc",  "y",    "&",    "axc" },
+        {  "a.*c",      "axyzc","y",    "&",    "axyzc" },
+        {  "a.*c",      "axyzd","n",    "-",    "-" },
+        {  "a[bc]d",    "abc",  "n",    "-",    "-" },
+        {  "a[bc]d",    "abd",  "y",    "&",    "abd" },
+        {  "a[b-d]e",   "abd",  "n",    "-",    "-" },
+        {  "a[b-d]e",   "ace",  "y",    "&",    "ace" },
+        {  "a[b-d]",    "aac",  "y",    "&",    "ac" },
+        {  "a[-b]",     "a-",   "y",    "&",    "a-" },
+        {  "a[b-]",     "a-",   "y",    "&",    "a-" },
+        {  "a[b-a]",    "-",    "c",    "-",    "-" },
+        {  "a[]b",      "-",    "c",    "-",    "-" },
+        {  "a[",        "-",    "c",    "-",    "-" },
+        {  "a]",        "a]",   "y",    "&",    "a]" },
+        {  "a[]]b",     "a]b",  "y",    "&",    "a]b" },
+        {  "a[^bc]d",   "aed",  "y",    "&",    "aed" },
+        {  "a[^bc]d",   "abd",  "n",    "-",    "-" },
+        {  "a[^-b]c",   "adc",  "y",    "&",    "adc" },
+        {  "a[^-b]c",   "a-c",  "n",    "-",    "-" },
+        {  "a[^]b]c",   "a]c",  "n",    "-",    "-" },
+        {  "a[^]b]c",   "adc",  "y",    "&",    "adc" },
+        {  "ab|cd",     "abc",  "y",    "&",    "ab" },
+        {  "ab|cd",     "abcd", "y",    "&",    "ab" },
+        {  "()ef",      "def",  "y",    "&-\\1",        "ef-" },
+//        {  "()*",     "-",    "c",    "-",    "-" },
+        {  "()*",       "-",    "y",    "-",    "-" },
+        {  "*a",        "-",    "c",    "-",    "-" },
+//        {  "^*",      "-",    "c",    "-",    "-" },
+        {  "^*",        "-",    "y",    "-",    "-" },
+//        {  "$*",      "-",    "c",    "-",    "-" },
+        {  "$*",        "-",    "y",    "-",    "-" },
+        {  "(*)b",      "-",    "c",    "-",    "-" },
+        {  "$b",        "b",    "n",    "-",    "-" },
+        {  "a\\",       "-",    "c",    "-",    "-" },
+        {  "a\\(b",     "a(b",  "y",    "&-\\1",        "a(b-" },
+        {  "a\\(*b",    "ab",   "y",    "&",    "ab" },
+        {  "a\\(*b",    "a((b", "y",    "&",    "a((b" },
+        {  "a\\\\b",    "a\\b", "y",    "&",    "a\\b" },
+// TODO:
+//        {  "abc)",      "-",    "c",    "-",    "-" },
+        {  "(abc",      "-",    "c",    "-",    "-" },
+        {  "((a))",     "abc",  "y",    "&-\\1-\\2",    "a-a-a" },
+        {  "(a)b(c)",   "abc",  "y",    "&-\\1-\\2",    "abc-a-c" },
+        {  "a+b+c",     "aabbabc","y",  "&",    "abc" },
+//        {  "a**",       "-",    "c",    "-",    "-" },
+        //{  "a*?",     "-",    "c",    "-",    "-" },
+        {  "a*?a",      "aa",   "y",    "&",    "a" },
+        //{  "(a*)*",   "-",    "c",    "-",    "-" },
+        {  "(a*)*",     "aaa",  "y",    "-",    "-" },
+        //{  "(a*)+",   "-",    "c",    "-",    "-" },
+        {  "(a*)+",     "aaa",  "y",    "-",    "-" },
+        //{  "(a|)*",   "-",    "c",    "-",    "-" },
+        {  "(a|)*",     "-",    "y",    "-",    "-" },
+        //{  "(a*|b)*", "-",    "c",    "-",    "-" },
+        {  "(a*|b)*",   "aabb", "y",    "-",    "-" },
+        {  "(a|b)*",    "ab",   "y",    "&-\\1",        "ab-b" },
+        {  "(a+|b)*",   "ab",   "y",    "&-\\1",        "ab-b" },
+        {  "(a+|b)+",   "ab",   "y",    "&-\\1",        "ab-b" },
+        {  "(a+|b)?",   "ab",   "y",    "&-\\1",        "a-a" },
+        {  "[^ab]*",    "cde",  "y",    "&",    "cde" },
+        //{  "(^)*",    "-",    "c",    "-",    "-" },
+        {  "(^)*",      "-",    "y",    "-",    "-" },
+        //{  "(ab|)*",  "-",    "c",    "-",    "-" },
+        {  "(ab|)*",    "-",    "y",    "-",    "-" },
+// TODO:
+//        {  ")(",        "-",    "c",    "-",    "-" },
+        {  "",  "abc",  "y",    "&",    "" },
+        {  "abc",       "",     "n",    "-",    "-" },
+        {  "a*",        "",     "y",    "&",    "" },
+        {  "([abc])*d", "abbbcd",       "y",    "&-\\1",        "abbbcd-c" },
+        {  "([abc])*bcd", "abcd",       "y",    "&-\\1",        "abcd-a" },
+        {  "a|b|c|d|e", "e",    "y",    "&",    "e" },
+        {  "(a|b|c|d|e)f", "ef",        "y",    "&-\\1",        "ef-e" },
+        //{  "((a*|b))*", "-",  "c",    "-",    "-" },
+        {  "((a*|b))*", "aabb", "y",    "-",    "-" },
+        {  "abcd*efg",  "abcdefg",      "y",    "&",    "abcdefg" },
+        {  "ab*",       "xabyabbbz",    "y",    "&",    "ab" },
+        {  "ab*",       "xayabbbz",     "y",    "&",    "a" },
+        {  "(ab|cd)e",  "abcde",        "y",    "&-\\1",        "cde-cd" },
+        {  "[abhgefdc]ij",      "hij",  "y",    "&",    "hij" },
+        {  "^(ab|cd)e", "abcde",        "n",    "x\\1y",        "xy" },
+        {  "(abc|)ef",  "abcdef",       "y",    "&-\\1",        "ef-" },
+        {  "(a|b)c*d",  "abcd", "y",    "&-\\1",        "bcd-b" },
+        {  "(ab|ab*)bc",        "abc",  "y",    "&-\\1",        "abc-a" },
+        {  "a([bc]*)c*",        "abc",  "y",    "&-\\1",        "abc-bc" },
+        {  "a([bc]*)(c*d)",     "abcd", "y",    "&-\\1-\\2",    "abcd-bc-d" },
+        {  "a([bc]+)(c*d)",     "abcd", "y",    "&-\\1-\\2",    "abcd-bc-d" },
+        {  "a([bc]*)(c+d)",     "abcd", "y",    "&-\\1-\\2",    "abcd-b-cd" },
+        {  "a[bcd]*dcdcde",     "adcdcde",      "y",    "&",    "adcdcde" },
+        {  "a[bcd]+dcdcde",     "adcdcde",      "n",    "-",    "-" },
+        {  "(ab|a)b*c", "abc",  "y",    "&-\\1",        "abc-ab" },
+        {  "((a)(b)c)(d)",      "abcd", "y",    "\\1-\\2-\\3-\\4",      "abc-a-b-d" },
+        {  "[a-zA-Z_][a-zA-Z0-9_]*",    "alpha",        "y",    "&",    "alpha" },
+        {  "^a(bc+|b[eh])g|.h$",        "abh",  "y",    "&-\\1",        "bh-" },
+        {  "(bc+d$|ef*g.|h?i(j|k))",    "effgz",        "y",    "&-\\1-\\2",    "effgz-effgz-" },
+        {  "(bc+d$|ef*g.|h?i(j|k))",    "ij",   "y",    "&-\\1-\\2",    "ij-ij-j" },
+        {  "(bc+d$|ef*g.|h?i(j|k))",    "effg", "n",    "-",    "-" },
+        {  "(bc+d$|ef*g.|h?i(j|k))",    "bcdd", "n",    "-",    "-" },
+        {  "(bc+d$|ef*g.|h?i(j|k))",    "reffgz",       "y",    "&-\\1-\\2",    "effgz-effgz-" },
+        //{    "((((((((((a))))))))))", "-",    "c",    "-",    "-" },
+        {  "(((((((((a)))))))))",       "a",    "y",    "&",    "a" },
+        {  "multiple words of text",    "uh-uh",        "n",    "-",    "-" },
+        {  "multiple words",    "multiple words, yeah", "y",    "&",    "multiple words" },
+        {  "(.*)c(.*)", "abcde",        "y",    "&-\\1-\\2",    "abcde-ab-de" },
+        {  "\\((.*), (.*)\\)",  "(a, b)",       "y",    "(\\2, \\1)",   "(b, a)" },
+        {  "abcd",      "abcd", "y",    "&-\\&-\\\\&",  "abcd-&-\\abcd" },
+        {  "a(bc)d",    "abcd", "y",    "\\1-\\\\1-\\\\\\1",    "bc-\\1-\\bc" },
+        {  "[k]",                       "ab",   "n",    "-",    "-" },
+        {  "[ -~]*",                    "abc",  "y",    "&",    "abc" },
+        {  "[ -~ -~]*",         "abc",  "y",    "&",    "abc" },
+        {  "[ -~ -~ -~]*",              "abc",  "y",    "&",    "abc" },
+        {  "[ -~ -~ -~ -~]*",           "abc",  "y",    "&",    "abc" },
+        {  "[ -~ -~ -~ -~ -~]*",        "abc",  "y",    "&",    "abc" },
+        {  "[ -~ -~ -~ -~ -~ -~]*",     "abc",  "y",    "&",    "abc" },
+        {  "[ -~ -~ -~ -~ -~ -~ -~]*",  "abc",  "y",    "&",    "abc" },
+        {  "a{2}",      "candy",                "n",    "",     "" },
+        {  "a{2}",      "caandy",               "y",    "&",    "aa" },
+        {  "a{2}",      "caaandy",              "y",    "&",    "aa" },
+        {  "a{2,}",     "candy",                "n",    "",     "" },
+        {  "a{2,}",     "caandy",               "y",    "&",    "aa" },
+        {  "a{2,}",     "caaaaaandy",           "y",    "&",    "aaaaaa" },
+        {  "a{1,3}",    "cndy",                 "n",    "",     "" },
+        {  "a{1,3}",    "candy",                "y",    "&",    "a" },
+        {  "a{1,3}",    "caandy",               "y",    "&",    "aa" },
+        {  "a{1,3}",    "caaaaaandy",           "y",    "&",    "aaa" },
+        {  "e?le?",     "angel",                "y",    "&",    "el" },
+        {  "e?le?",     "angle",                "y",    "&",    "le" },
+        {  "\\bn\\w",   "noonday",              "y",    "&",    "no" },
+        {  "\\wy\\b",   "possibly yesterday",   "y",    "&",    "ly" },
+        {  "\\w\\Bn",   "noonday",              "y",    "&",    "on" },
+        {  "y\\B\\w",   "possibly yesterday",   "y",    "&",    "ye" },
+// TODO:
+//        {  "\\cJ",      "abc\ndef",             "y",    "&",    "\n" },
+        {  "\\d",       "B2 is",                "y",    "&",    "2" },
+        {  "\\D",       "B2 is",                "y",    "&",    "B" },
+        {  "\\s\\w*",   "foo bar",              "y",    "&",    " bar" },
+        {  "\\S\\w*",   "foo bar",              "y",    "&",    "foo" },
+        {  "abc",       "ababc",                "y",    "&",    "abc" },
+// Backreferences not supported
+//        {  "apple(,)\\sorange\\1",      "apple, orange, cherry, peach", "y", "&", "apple, orange," },
+        {  "(\\w+)\\s(\\w+)",           "John Smith", "y", "\\2, \\1", "Smith, John" },
+        {  "\\n\\f\\r\\t\\v",           "abc\n\f\r\t\vdef", "y", "&", "\n\f\r\t\v" },
+        {  ".*c",       "abcde",                "y",    "&",    "abc" },
+        {  "^\\w+((;|=)\\w+)+$", "some=host=tld", "y", "&-\\1-\\2", "some=host=tld-=tld-=" },
+        {  "^\\w+((\\.|-)\\w+)+$", "some.host.tld", "y", "&-\\1-\\2", "some.host.tld-.tld-." },
+        {  "q(a|b)*q",  "xxqababqyy",           "y",    "&-\\1",        "qababq-b" },
+
+        {  "^(a)(b){0,1}(c*)",   "abcc", "y", "\\1 \\2 \\3", "a b cc" },
+        {  "^(a)((b){0,1})(c*)", "abcc", "y", "\\1 \\2 \\3", "a b b" },
+        {  "^(a)(b)?(c*)",       "abcc", "y", "\\1 \\2 \\3", "a b cc" },
+        {  "^(a)((b)?)(c*)",     "abcc", "y", "\\1 \\2 \\3", "a b b" },
+        {  "^(a)(b){0,1}(c*)",   "acc",  "y", "\\1 \\2 \\3", "a  cc" },
+        {  "^(a)((b){0,1})(c*)", "acc",  "y", "\\1 \\2 \\3", "a  " },
+        {  "^(a)(b)?(c*)",       "acc",  "y", "\\1 \\2 \\3", "a  cc" },
+        {  "^(a)((b)?)(c*)",     "acc",  "y", "\\1 \\2 \\3", "a  " },
+
+        ];
+
+    int i;
+    sizediff_t a;
+    uint c;
+    sizediff_t start;
+    sizediff_t end;
+    TestVectors tvd;
+
+    foreach (Char; TypeTuple!(char, wchar, dchar))
+    {
+        alias immutable(Char)[] String;
+        //Regex!(Char) r;
+        String s = "";
+        auto r = regex(s);
+        start = 0;
+        end = tv.length;
+
+        for (a = start; a < end; a++)
+        {
+            //printf("width: %d tv[%d]: pattern='%.*s' input='%.*s' result=%.*s"
+            //         " format='%.*s' replace='%.*s'\n",
+            //         Char.sizeof, a, tv[a].pattern, tv[a].input,
+            //         tv[a].result, tv[a].format, tv[a].replace);
+
+            tvd = tv[a];
+
+            c = tvd.result[0];
+
+            try
+            {
+                i = 1;
+                r = regex(to!(String)(tvd.pattern));
+            }
+            catch (Exception e)
+            {
+                i = 0;
+            }
+
+            //printf("\tcompile() = %d\n", i);
+            //writefln( "pattern = %s", tvd.pattern );
+            assert((c == 'c') ? !i : i);
+
+
+            if (c != 'c')
+            {
+                i = !match(to!(String)(tvd.input), r).empty;
+                //printf("\ttest() = %d\n", i);
+                //fflush(stdout);
+                assert((c == 'y') ? i : !i);
+            }
+        }
+
+        try
+        {
+            r = regex(to!(String)("a\\.b"), "i");
+        }
+        catch (Exception e)
+        {
+            assert(0);
+        }
+        assert(!match(to!(String)("A.b"), r).empty);
+        assert(!match(to!(String)("a.B"), r).empty);
+        assert(!match(to!(String)("A.B"), r).empty);
+        assert(!match(to!(String)("a.b"), r).empty);
+    }
 }

@@ -2314,135 +2314,129 @@ public class BackTrackEngine
         size_t[] captures;
     }
     
-    //int execute(String)( size_t pc, size_t sPos, size_t prevSPos, String s, size_t[] captures )
-    int execute(String)( ref ExecState!String state )
+    int execute(String)( size_t state_pc, size_t state_sPos, size_t state_prevSPos,
+                         String state_s, size_t[] state_captures, ExecState!(String)* execState )
     {
         auto program = _re.program;
 
         for( ;; )
         {
-            Inst* inst = cast(Inst*)&program[state.pc];
+            Inst* inst = cast(Inst*)&program[state_pc];
 
             final switch( inst.type )
             {
             case REInst.Char:
-                if ( state.sPos == state.s.length )
+                if ( state_sPos == state_s.length )
                     return 0;
-                // get next character and advance state.sPos
-                state.prevSPos = state.sPos;
-                dchar thisChar = decode( state.s, state.sPos );
+
+                // get next character and advance state_sPos
+                state_prevSPos = state_sPos;
+                dchar thisChar = decode( state_s, state_sPos );
                 auto instChar = cast(InstChar*)inst;
                 if ( instChar.c != thisChar )
                     return 0;
 
-                state.pc += InstChar.sizeof;
+                state_pc += InstChar.sizeof;
                 break;
 
             case REInst.IChar:
-                if ( state.sPos == state.s.length )
+                if ( state_sPos == state_s.length )
                     return 0;
-                // get next character and advance state.sPos
-                state.prevSPos = state.sPos;
-                dchar thisChar = decode( state.s, state.sPos );
+                // get next character and advance state_sPos
+                state_prevSPos = state_sPos;
+                dchar thisChar = decode( state_s, state_sPos );
                 auto instIChar = cast(InstIChar*)inst;
                 if ( instIChar.c != tolower(thisChar) )
                     return 0;
 
-                state.pc += InstIChar.sizeof;
+                state_pc += InstIChar.sizeof;
 
                 break;
 
             case REInst.AnyChar:
-                if ( state.sPos == state.s.length )
+                if ( state_sPos == state_s.length )
                     return 0;
-                // get next character and advance state.sPos
-                state.prevSPos = state.sPos;
-                dchar thisChar = decode( state.s, state.sPos );
-                state.pc += InstAnyChar.sizeof;
+                // get next character and advance state_sPos
+                state_prevSPos = state_sPos;
+                dchar thisChar = decode( state_s, state_sPos );
+                state_pc += InstAnyChar.sizeof;
 
                 break;
 
             case REInst.CharRange:
                 auto instCharRange = cast(InstCharRange*)inst;
-                if ( state.sPos == state.s.length )
+                if ( state_sPos == state_s.length )
                     return 0;
-                // get next character and advance state.sPos
-                state.prevSPos = state.sPos;
-                dchar thisChar = decode( state.s, state.sPos );
+                // get next character and advance state_sPos
+                state_prevSPos = state_sPos;
+                dchar thisChar = decode( state_s, state_sPos );
 
                 if ( ! ( thisChar >= instCharRange.span.start &&
                          thisChar <= instCharRange.span.end )  )
                     return 0;
 
-                state.pc += InstCharRange.sizeof;
+                state_pc += InstCharRange.sizeof;
 
                 break;
 
             case REInst.ICharRange:
                 auto instICharRange = cast(InstICharRange*)inst;
-                if ( state.sPos == state.s.length )
+                if ( state_sPos == state_s.length )
                     return 0;
-                // get next character and advance state.sPos
-                state.prevSPos = state.sPos;
-                dchar thisChar = tolower( decode( state.s, state.sPos ) );
+                // get next character and advance state_sPos
+                state_prevSPos = state_sPos;
+                dchar thisChar = tolower( decode( state_s, state_sPos ) );
 
                 if ( ! ( thisChar >= instICharRange.span.start &&
                          thisChar <= instICharRange.span.end )  )
                     return 0;
 
-                state.pc += InstICharRange.sizeof;
+                state_pc += InstICharRange.sizeof;
 
                 break;
 
             case REInst.CharBitmap:
                 auto instCharBitmap = cast(InstCharBitmap*)inst;
-                if ( state.sPos == state.s.length )
+                if ( state_sPos == state_s.length )
                     return 0;
-                // get next character and advance state.sPos
-                state.prevSPos = state.sPos;
-                dchar thisChar = decode( state.s, state.sPos );
+                // get next character and advance state_sPos
+                state_prevSPos = state_sPos;
+                dchar thisChar = decode( state_s, state_sPos );
 
                 if ( !(*instCharBitmap)[thisChar] )
                     return 0;
                     
-                state.pc += InstCharBitmap.sizeof;
+                state_pc += InstCharBitmap.sizeof;
 
                 break;
 
             case REInst.Save:
                 auto instSave = cast(InstSave*)inst;
                     
-                size_t oldCapture = state.captures[instSave.num];
-                state.captures[instSave.num] = state.sPos;
+                size_t oldCapture = state_captures[instSave.num];
+                state_captures[instSave.num] = state_sPos;
 
-                state.pc += InstSave.sizeof;
-                ExecState!String savedState = state;
-                //if ( execute( state.pc, state.sPos, state.prevSPos, s, state.captures ) )
-                if ( execute( state ) )
+                state_pc += InstSave.sizeof;
+                if ( execute( state_pc, state_sPos, state_prevSPos, state_s, state_captures, execState ) )
                     return 1;
 
-                state = savedState;
                 // Restore old capture if thread has failed
-                state.captures[instSave.num] = oldCapture;
+                state_captures[instSave.num] = oldCapture;
                 return 0;
 
                 break;
 
             case REInst.Split:
                 auto instSplit = cast(InstSplit*)inst;
-                //if ( execute( instSplit.locPref, state.sPos, state.prevSPos, s, state.captures ) )
-                ExecState!String savedState = state;
-                state.pc = instSplit.locPref;
-                if ( execute( state ) )
+                if ( execute( instSplit.locPref, state_sPos, state_prevSPos, state_s, state_captures, execState ) )
                     return 1;
-                state = savedState;
-                state.pc = instSplit.locSec;
+                state_pc = instSplit.locSec;
 
                 break;
 
             case REInst.Jump:
                 auto instJump = cast(InstJump*)inst;
-                state.pc = instJump.loc;
+                state_pc = instJump.loc;
 
                 break;
 
@@ -2450,41 +2444,41 @@ public class BackTrackEngine
                 return 1;
 
             case REInst.BOL:
-                if ( !isNewLineChar( state.s, state.prevSPos ) )
+                if ( !isNewLineChar( state_s, state_prevSPos ) )
                     return 0;
 
-                state.pc += InstBOL.sizeof;
+                state_pc += InstBOL.sizeof;
                 break;
 
             case REInst.EOL:
-                if ( !isNewLineChar( state.s, state.sPos ) )
+                if ( !isNewLineChar( state_s, state_sPos ) )
                     return 0;
 
-                state.pc += InstEOL.sizeof;
+                state_pc += InstEOL.sizeof;
                 break;
 
             case REInst.BOT:
-                if ( state.sPos != 0 )
+                if ( state_sPos != 0 )
                     return 0;
 
-                state.pc += InstBOL.sizeof;
+                state_pc += InstBOL.sizeof;
                 break;
 
             case REInst.EOT:
-                if ( state.sPos != state.s.length )
+                if ( state_sPos != state_s.length )
                     return 0;
 
-                state.pc += InstEOL.sizeof;
+                state_pc += InstEOL.sizeof;
                 break;
 
             case REInst.WordBoundary:
                 bool result=false;
                         
-                if( isWordChar( state.s, state.prevSPos ) &&
-                    !isWordChar( state.s, state.sPos ) )
+                if( isWordChar( state_s, state_prevSPos ) &&
+                    !isWordChar( state_s, state_sPos ) )
                     result = true;
-                else if ( !isWordChar( state.s, state.prevSPos ) &&
-                          isWordChar( state.s, state.sPos ) )
+                else if ( !isWordChar( state_s, state_prevSPos ) &&
+                          isWordChar( state_s, state_sPos ) )
                     result = true;
 
                 auto instWordBoundary = cast(InstWordBoundary*)inst;
@@ -2492,33 +2486,28 @@ public class BackTrackEngine
                 if ( result != instWordBoundary.positiveFlag )
                     return 0;
 
-                state.pc += InstWordBoundary.sizeof;
+                state_pc += InstWordBoundary.sizeof;
                 break;
 
             case REInst.LookAround:
-                state.pc += InstLookAround.sizeof;
+                state_pc += InstLookAround.sizeof;
                 auto instLookAround = cast(InstLookAround*)inst;
                 
                 if ( instLookAround.ahead )
                 {
-                    //if ( execute( state.pc, state.sPos, state.prevSPos, state.s, state.captures ) != instLookAround.positive )
-                    ExecState!String savedState = state;
-                    if ( execute( state ) != instLookAround.positive )
+                    if ( execute( state_pc, state_sPos, state_prevSPos, state_s, state_captures, execState ) != instLookAround.positive )
                         return 0;
 
-                    state = savedState;
-                    state.pc = instLookAround.jumpLoc;
+                    state_pc = instLookAround.jumpLoc;
                 }
                 else
                 {
-                    ExecState!String savedState = state;
-
-                    size_t shiftedSPos = state.sPos;
+                    size_t shiftedSPos = state_sPos;
                     size_t shiftedPrevSPos;
 
                     for( int i=0; i<instLookAround.distance; ++i )
                     {
-                        if( !rDecode( state.s, shiftedSPos ) )
+                        if( !rDecode( state_s, shiftedSPos ) )
                             return false;
                     }
                     if ( shiftedSPos == 0 )
@@ -2526,30 +2515,34 @@ public class BackTrackEngine
                     else
                         shiftedPrevSPos = shiftedSPos - 1;
                     
-                    //if ( execute( state.pc, shiftedSPos, shiftedPrevSPos, state.s, state.captures ) != instLookAround.positive )
-                    state.sPos = shiftedSPos;
-                    state.prevSPos = shiftedPrevSPos;
-                    if ( execute( state ) != instLookAround.positive )
+                    if ( execute( state_pc, shiftedSPos, shiftedPrevSPos, state_s, state_captures, execState ) != instLookAround.positive )
                         return 0;
-                    state = savedState;
-                    state.pc = instLookAround.jumpLoc;
+                    state_pc = instLookAround.jumpLoc;
                 }
 
                 break;
 
             case REInst.SaveProgress:
-                state.pc += InstSaveProgress.sizeof;
-                ExecState!String savedState = state;
-                //writefln( "SaveProgress" );
-                int result = execute( state );
-                if ( result == 0 || state.sPos == savedState.sPos )
+                state_pc += InstSaveProgress.sizeof;
+                int result = execute( state_pc, state_sPos, state_prevSPos, state_s, state_captures, execState );
+                if ( result == 0 || state_sPos == execState.sPos )
+                {
                     return 0;
+                }
+                state_pc = execState.pc;
+                state_sPos = execState.sPos;
+                state_prevSPos = execState.prevSPos;
+
                 break;
                 
             case REInst.CheckProgress:
-                state.pc += InstCheckProgress.sizeof;
+                state_pc += InstCheckProgress.sizeof;
+                execState.sPos = state_sPos;
+                execState.pc = state_pc;
+                execState.prevSPos = state_prevSPos;
+                //writefln( "CheckProgress %s %s", state_s, state_sPos );
                 return 1;
-                break;
+                //break;
             }
         }
 
@@ -2573,9 +2566,10 @@ public class BackTrackEngine
         assert( captures.length >= _re.numCaptures );
 
         captures[] = size_t.max;
-        ExecState!String state = ExecState!String( 0, startPos, size_t.max, s, captures );
-        execute( state );
-        //execute( 0, startPos, size_t.max, s, captures );
+        //ExecState!String state = ExecState!String( 0, startPos, size_t.max, s, captures );
+        //execute( state );
+        ExecState!String state;
+        execute( 0, startPos, size_t.max,  s, captures, &state );
     }
 
     void printProgram()
@@ -3193,7 +3187,6 @@ unittest
 unittest
 {
     auto re = Regex( r".*" );
-    re.printProgram();
     auto eng = new LockStepEngine( re );
     assert( eng.matchAt( "a" ) );
     auto bteng = new BackTrackEngine( re );

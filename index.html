@@ -80,15 +80,15 @@ Boost Software License - Version 1.0 - August 17th, 2003
 The regular expression engine<br><br>
 
 </dd>
-<dt><big>struct <u>Match</u>(String);
-<br>struct <u>Match</u>(String,int NumCaptures);
+<dt><big>struct <u>RegexSingleMatch</u>(String);
+<br>struct <u>RegexSingleMatch</u>(String,int NumCaptures);
 </big></dt>
-<dd><u>Match</u> types
+<dd><u>RegexSingleMatch</u> types
 <br><br>
 Stores information about a regular expression match.
 <br><br>
 
- If known at compile time, using a <u>Match</u> type parameterised on the
+ If known at compile time, using a <u>RegexSingleMatch</u> type parameterised on the
  number of captures avoids dynamic allocation of storage for them.<br><br>
 
 <dl><dt><big>void <u>setNumCaptures</u>(int <i>numCaptures</i>);
@@ -118,9 +118,9 @@ Stores information about a regular expression match.
 </dd>
 </dl>
 </dd>
-<dt><big>MatchRange!(String,Regex,Match!(String)) <u>match</u>(String, Regex)(String <i>s</i>, Regex <i>re</i>);
+<dt><big>RegexMatch!(String,Regex,RegexSingleMatch!(String)) <u>match</u>(String, Regex)(String <i>s</i>, Regex <i>re</i>);
 </big></dt>
-<dd>Create a MatchRange object that may be used to iterate over the matches.
+<dd>Create a RegexMatch object that may be used to iterate over the matches.
 <br><br>
 <b>Params:</b><br>
 <table><tr><td>s</td>
@@ -129,7 +129,7 @@ Stores information about a regular expression match.
 <td>The regular expression engine</td></tr>
 </table><br>
 <b>Returns:</b><br>
-The MatchRange object
+The RegexMatch object
 
 <br><br>
 <b>Examples:</b><br>
@@ -157,9 +157,9 @@ The MatchRange object
 <br><br>
 
 </dd>
-<dt><big>MatchRange!(String,Regex,Match!(String,NumCaptures)) <u>staticMatch</u>(int NumCaptures, String, Regex)(String <i>s</i>, Regex <i>re</i>);
+<dt><big>RegexMatch!(String,Regex,RegexSingleMatch!(String,NumCaptures)) <u>staticMatch</u>(int NumCaptures, String, Regex)(String <i>s</i>, Regex <i>re</i>);
 </big></dt>
-<dd>Create a MatchRange object with a statically defined number of caputres.
+<dd>Create a RegexMatch object with a statically defined number of caputres.
 <br><br>
 <b>Example:</b><br>
 <pre class="d_code"> <font color=blue>auto</font> sm = <u>staticMatch</u>!3( <font color=red>"123.456"</font>, btregex( <font color=red>`([0-9]+)\.([0-9]+)`</font> ) );
@@ -170,18 +170,18 @@ The MatchRange object
 <br><br>
 
 </dd>
-<dt><big>struct <u>MatchRange</u>(String,RegexEngine,MatchType);
+<dt><big>struct <u>RegexMatch</u>(String,RegexEngine,RegexSingleMatchType);
 </big></dt>
 <dd>Range interface for regular expression matches<br><br>
 
 <dl><dt><big>bool <u>empty</u>();
 <br>void <u>popFront</u>();
-<br>MatchRange!(String,RegexEngine,MatchType) <u>front</u>();
+<br>RegexMatch!(String,RegexEngine,RegexSingleMatchType) <u>front</u>();
 </big></dt>
 <dd>Range primitives<br><br>
 
 </dd>
-<dt><big>Captures!(String,MatchType) <u>captures</u>();
+<dt><big>Captures!(String,RegexSingleMatchType) <u>captures</u>();
 </big></dt>
 <dd>Get captured subexpressions<br><br>
 
@@ -203,7 +203,7 @@ The MatchRange object
 </dd>
 </dl>
 </dd>
-<dt><big>struct <u>Captures</u>(String,MatchType);
+<dt><big>struct <u>Captures</u>(String,RegexSingleMatchType);
 </big></dt>
 <dd>Range interface for captured subexpressions of a match<br><br>
 

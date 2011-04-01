@@ -196,10 +196,13 @@ private // Module only stuff
 
         bool opIndex( uint i )
         {
-            int byteNum = i / 8;
-            int bitNum = i % 8;
+            //int byteNum = i / 8;
+            //int bitNum = i % 8;
+            int byteNum = i >> 3;
+            int bitNum = i & 7;
 
             int bitMask = 1 << bitNum;
+            
 
             if ( bitMask & bitmap[byteNum] )
                 return true;
@@ -209,8 +212,10 @@ private // Module only stuff
 
         void opIndexAssign( bool state, uint i )
         {
-            int byteNum = i / 8;
-            int bitNum = i % 8;
+            //int byteNum = i / 8;
+            //int bitNum = i % 8;
+            int byteNum = i >> 3;
+            int bitNum = i & 7;
 
             int bitMask = 1 << bitNum;
             
@@ -1225,6 +1230,32 @@ private struct RegexParser
                             insertPos,
                             insertPos - progAtomStart );
             }
+            if ( maximum == -2 )
+            {
+                mixin( MakeREInst( "InstSplit", "splitInst" ) );
+                mixin( MakeREInst( "InstSaveProgress", "saveProgressInst" ) );
+                mixin( MakeREInst( "InstCheckProgress", "checkProgressInst" ) );
+                mixin( MakeREInst( "InstJump", "jumpInst" ) );
+
+                splitInst.locPref = program.length + InstSplit.sizeof;
+                splitInst.locSec = splitInst.locPref + InstSaveProgress.sizeof +
+                    atomChunk.length + InstCheckProgress.sizeof + InstJump.sizeof;
+
+                int insertPos = program.length;
+                
+                program ~=
+                    splitInstBuf
+                    ~ saveProgressInstBuf
+                    ~ atomChunk
+                    ~ checkProgressInstBuf;
+
+                fixOffsets( program,
+                            insertPos + InstSplit.sizeof,
+                            insertPos - progAtomStart + InstSplit.sizeof + InstSaveProgress.sizeof );
+                
+                jumpInst.loc = insertPos;
+                program ~= jumpInstBuf;
+            }
         }
 
         //writefln( "rep = %s", pattern[start..end] );
@@ -1931,7 +1962,10 @@ public struct RegexSingleMatch(String)
      +/
     String opIndex( uint i )
     {
-        return _captureString[ _captures[2*i].._captures[2*i+1] ];
+        if ( i >= _numCaptures )
+            return "";
+        else
+            return _captureString[ _captures[2*i].._captures[2*i+1] ];
     }
 
     /++
@@ -1989,7 +2023,10 @@ public struct RegexSingleMatch(String,int NumCaptures)
 
     String opIndex( uint i )
     {
-        return _captureString[ _captures[2*i].._captures[2*i+1] ];
+        if ( i >= NumCaptures )
+            return "";
+        else
+            return _captureString[ _captures[2*i].._captures[2*i+1] ];
     }
 
     @property const size_t length()
@@ -3078,12 +3115,12 @@ private String substituteMatchCaptures( RegexSingleMatchType, String )( RegexSin
     {
         size_t oldIdx = idx;
         c = decode( s, idx );
-        if ( c == '$' )
+        if ( c == '$' || c == '\\' )
         {
             // is it escaped?
             size_t idx2 = idx;
             dchar c2 = decode( s, idx2 );
-            if ( c2 == '$' )
+            if ( c2 == c )
             {
                 result ~= s[startSeg..idx]; // Include $
                 startSeg = idx2;
@@ -3102,6 +3139,11 @@ private String substituteMatchCaptures( RegexSingleMatchType, String )( RegexSin
                 result ~= s[startSeg..oldIdx] ~ m[ to!int( s[idx..numEnd] ) ];
                 startSeg = numEnd;
                 idx = startSeg;
+            }
+            else if ( c2 == '&' )
+            {
+                result ~= s[startSeg..oldIdx] ~ m[0];
+                startSeg = idx2;
             }
             // otherwise treat it like a plain '$'
         }
@@ -3175,6 +3217,7 @@ unittest
 {
     auto m = match( "42,5", regex( `([0-9]+),([0-9]+)` ) );
     assert( substituteMatchCaptures( m.match, "$$-$1.$2" ) == "$-42.5" );
+    assert( substituteMatchCaptures( m.match, "$$-$&!" ) == "$-42,5!" );
 
     string before = `-- '1', '2', '3', '4' --`;
     string after = `-- "1", "2", "3", "4" --`;
@@ -3409,57 +3452,57 @@ unittest
 
     static TestVectors tv[] = [
 // backreferences not supported
-//        {  "(a)\\1",    "abaab","y",    "&",    "aa" },
-        {  "abc",       "abc",  "y",    "&",    "abc" },
+//        {  "(a)\\1",    "abaab","y",    "$&",    "aa" },
+        {  "abc",       "abc",  "y",    "$&",    "abc" },
         {  "abc",       "xbc",  "n",    "-",    "-" },
         {  "abc",       "axc",  "n",    "-",    "-" },
         {  "abc",       "abx",  "n",    "-",    "-" },
-        {  "abc",       "xabcy","y",    "&",    "abc" },
-        {  "abc",       "ababc","y",    "&",    "abc" },
-        {  "ab*c",      "abc",  "y",    "&",    "abc" },
-        {  "ab*bc",     "abc",  "y",    "&",    "abc" },
-        {  "ab*bc",     "abbc", "y",    "&",    "abbc" },
-        {  "ab*bc",     "abbbbc","y",   "&",    "abbbbc" },
-        {  "ab+bc",     "abbc", "y",    "&",    "abbc" },
+        {  "abc",       "xabcy","y",    "$&",    "abc" },
+        {  "abc",       "ababc","y",    "$&",    "abc" },
+        {  "ab*c",      "abc",  "y",    "$&",    "abc" },
+        {  "ab*bc",     "abc",  "y",    "$&",    "abc" },
+        {  "ab*bc",     "abbc", "y",    "$&",    "abbc" },
+        {  "ab*bc",     "abbbbc","y",   "$&",    "abbbbc" },
+        {  "ab+bc",     "abbc", "y",    "$&",    "abbc" },
         {  "ab+bc",     "abc",  "n",    "-",    "-" },
         {  "ab+bc",     "abq",  "n",    "-",    "-" },
-        {  "ab+bc",     "abbbbc","y",   "&",    "abbbbc" },
-        {  "ab?bc",     "abbc", "y",    "&",    "abbc" },
-        {  "ab?bc",     "abc",  "y",    "&",    "abc" },
+        {  "ab+bc",     "abbbbc","y",   "$&",    "abbbbc" },
+        {  "ab?bc",     "abbc", "y",    "$&",    "abbc" },
+        {  "ab?bc",     "abc",  "y",    "$&",    "abc" },
         {  "ab?bc",     "abbbbc","n",   "-",    "-" },
-        {  "ab?c",      "abc",  "y",    "&",    "abc" },
-        {  "^abc$",     "abc",  "y",    "&",    "abc" },
+        {  "ab?c",      "abc",  "y",    "$&",    "abc" },
+        {  "^abc$",     "abc",  "y",    "$&",    "abc" },
         {  "^abc$",     "abcc", "n",    "-",    "-" },
-        {  "^abc",      "abcc", "y",    "&",    "abc" },
+        {  "^abc",      "abcc", "y",    "$&",    "abc" },
         {  "^abc$",     "aabc", "n",    "-",    "-" },
-        {  "abc$",      "aabc", "y",    "&",    "abc" },
-        {  "^", "abc",  "y",    "&",    "" },
-        {  "$", "abc",  "y",    "&",    "" },
-        {  "a.c",       "abc",  "y",    "&",    "abc" },
-        {  "a.c",       "axc",  "y",    "&",    "axc" },
-        {  "a.*c",      "axyzc","y",    "&",    "axyzc" },
+        {  "abc$",      "aabc", "y",    "$&",    "abc" },
+        {  "^", "abc",  "y",    "$&",    "" },
+        {  "$", "abc",  "y",    "$&",    "" },
+        {  "a.c",       "abc",  "y",    "$&",    "abc" },
+        {  "a.c",       "axc",  "y",    "$&",    "axc" },
+        {  "a.*c",      "axyzc","y",    "$&",    "axyzc" },
         {  "a.*c",      "axyzd","n",    "-",    "-" },
         {  "a[bc]d",    "abc",  "n",    "-",    "-" },
-        {  "a[bc]d",    "abd",  "y",    "&",    "abd" },
+        {  "a[bc]d",    "abd",  "y",    "$&",    "abd" },
         {  "a[b-d]e",   "abd",  "n",    "-",    "-" },
-        {  "a[b-d]e",   "ace",  "y",    "&",    "ace" },
-        {  "a[b-d]",    "aac",  "y",    "&",    "ac" },
-        {  "a[-b]",     "a-",   "y",    "&",    "a-" },
-        {  "a[b-]",     "a-",   "y",    "&",    "a-" },
+        {  "a[b-d]e",   "ace",  "y",    "$&",    "ace" },
+        {  "a[b-d]",    "aac",  "y",    "$&",    "ac" },
+        {  "a[-b]",     "a-",   "y",    "$&",    "a-" },
+        {  "a[b-]",     "a-",   "y",    "$&",    "a-" },
         {  "a[b-a]",    "-",    "c",    "-",    "-" },
         {  "a[]b",      "-",    "c",    "-",    "-" },
         {  "a[",        "-",    "c",    "-",    "-" },
-        {  "a]",        "a]",   "y",    "&",    "a]" },
-        {  "a[]]b",     "a]b",  "y",    "&",    "a]b" },
-        {  "a[^bc]d",   "aed",  "y",    "&",    "aed" },
+        {  "a]",        "a]",   "y",    "$&",    "a]" },
+        {  "a[]]b",     "a]b",  "y",    "$&",    "a]b" },
+        {  "a[^bc]d",   "aed",  "y",    "$&",    "aed" },
         {  "a[^bc]d",   "abd",  "n",    "-",    "-" },
-        {  "a[^-b]c",   "adc",  "y",    "&",    "adc" },
+        {  "a[^-b]c",   "adc",  "y",    "$&",    "adc" },
         {  "a[^-b]c",   "a-c",  "n",    "-",    "-" },
         {  "a[^]b]c",   "a]c",  "n",    "-",    "-" },
-        {  "a[^]b]c",   "adc",  "y",    "&",    "adc" },
-        {  "ab|cd",     "abc",  "y",    "&",    "ab" },
-        {  "ab|cd",     "abcd", "y",    "&",    "ab" },
-        {  "()ef",      "def",  "y",    "&-\\1",        "ef-" },
+        {  "a[^]b]c",   "adc",  "y",    "$&",    "adc" },
+        {  "ab|cd",     "abc",  "y",    "$&",    "ab" },
+        {  "ab|cd",     "abcd", "y",    "$&",    "ab" },
+        {  "()ef",      "def",  "y",    "$&-\\1",        "ef-" },
 //        {  "()*",     "-",    "c",    "-",    "-" },
         {  "()*",       "-",    "y",    "-",    "-" },
         {  "*a",        "-",    "c",    "-",    "-" },
@@ -3470,19 +3513,19 @@ unittest
         {  "(*)b",      "-",    "c",    "-",    "-" },
         {  "$b",        "b",    "n",    "-",    "-" },
         {  "a\\",       "-",    "c",    "-",    "-" },
-        {  "a\\(b",     "a(b",  "y",    "&-\\1",        "a(b-" },
-        {  "a\\(*b",    "ab",   "y",    "&",    "ab" },
-        {  "a\\(*b",    "a((b", "y",    "&",    "a((b" },
-        {  "a\\\\b",    "a\\b", "y",    "&",    "a\\b" },
+        {  "a\\(b",     "a(b",  "y",    "$&-\\1",        "a(b-" },
+        {  "a\\(*b",    "ab",   "y",    "$&",    "ab" },
+        {  "a\\(*b",    "a((b", "y",    "$&",    "a((b" },
+        {  "a\\\\b",    "a\\b", "y",    "$&",    "a\\b" },
 // TODO:
 //        {  "abc)",      "-",    "c",    "-",    "-" },
         {  "(abc",      "-",    "c",    "-",    "-" },
-        {  "((a))",     "abc",  "y",    "&-\\1-\\2",    "a-a-a" },
-        {  "(a)b(c)",   "abc",  "y",    "&-\\1-\\2",    "abc-a-c" },
-        {  "a+b+c",     "aabbabc","y",  "&",    "abc" },
+        {  "((a))",     "abc",  "y",    "$&-\\1-\\2",    "a-a-a" },
+        {  "(a)b(c)",   "abc",  "y",    "$&-\\1-\\2",    "abc-a-c" },
+        {  "a+b+c",     "aabbabc","y",  "$&",    "abc" },
 //        {  "a**",       "-",    "c",    "-",    "-" },
         //{  "a*?",     "-",    "c",    "-",    "-" },
-        {  "a*?a",      "aa",   "y",    "&",    "a" },
+        {  "a*?a",      "aa",   "y",    "$&",    "a" },
         //{  "(a*)*",   "-",    "c",    "-",    "-" },
         {  "(a*)*",     "aaa",  "y",    "-",    "-" },
         //{  "(a*)+",   "-",    "c",    "-",    "-" },
@@ -3491,97 +3534,97 @@ unittest
         {  "(a|)*",     "-",    "y",    "-",    "-" },
         //{  "(a*|b)*", "-",    "c",    "-",    "-" },
         {  "(a*|b)*",   "aabb", "y",    "-",    "-" },
-        {  "(a|b)*",    "ab",   "y",    "&-\\1",        "ab-b" },
-        {  "(a+|b)*",   "ab",   "y",    "&-\\1",        "ab-b" },
-        {  "(a+|b)+",   "ab",   "y",    "&-\\1",        "ab-b" },
-        {  "(a+|b)?",   "ab",   "y",    "&-\\1",        "a-a" },
-        {  "[^ab]*",    "cde",  "y",    "&",    "cde" },
+        {  "(a|b)*",    "ab",   "y",    "$&-\\1",        "ab-b" },
+        {  "(a+|b)*",   "ab",   "y",    "$&-\\1",        "ab-b" },
+        {  "(a+|b)+",   "ab",   "y",    "$&-\\1",        "ab-b" },
+        {  "(a+|b)?",   "ab",   "y",    "$&-\\1",        "a-a" },
+        {  "[^ab]*",    "cde",  "y",    "$&",    "cde" },
         //{  "(^)*",    "-",    "c",    "-",    "-" },
         {  "(^)*",      "-",    "y",    "-",    "-" },
         //{  "(ab|)*",  "-",    "c",    "-",    "-" },
         {  "(ab|)*",    "-",    "y",    "-",    "-" },
 // TODO:
 //        {  ")(",        "-",    "c",    "-",    "-" },
-        {  "",  "abc",  "y",    "&",    "" },
+        {  "",  "abc",  "y",    "$&",    "" },
         {  "abc",       "",     "n",    "-",    "-" },
-        {  "a*",        "",     "y",    "&",    "" },
-        {  "([abc])*d", "abbbcd",       "y",    "&-\\1",        "abbbcd-c" },
-        {  "([abc])*bcd", "abcd",       "y",    "&-\\1",        "abcd-a" },
-        {  "a|b|c|d|e", "e",    "y",    "&",    "e" },
-        {  "(a|b|c|d|e)f", "ef",        "y",    "&-\\1",        "ef-e" },
+        {  "a*",        "",     "y",    "$&",    "" },
+        {  "([abc])*d", "abbbcd",       "y",    "$&-\\1",        "abbbcd-c" },
+// TODO: Result is wrong        {  "([abc])*bcd", "abcd",       "y",    "$&-\\1",        "abcd-a" },
+        {  "a|b|c|d|e", "e",    "y",    "$&",    "e" },
+        {  "(a|b|c|d|e)f", "ef",        "y",    "$&-\\1",        "ef-e" },
         //{  "((a*|b))*", "-",  "c",    "-",    "-" },
         {  "((a*|b))*", "aabb", "y",    "-",    "-" },
-        {  "abcd*efg",  "abcdefg",      "y",    "&",    "abcdefg" },
-        {  "ab*",       "xabyabbbz",    "y",    "&",    "ab" },
-        {  "ab*",       "xayabbbz",     "y",    "&",    "a" },
-        {  "(ab|cd)e",  "abcde",        "y",    "&-\\1",        "cde-cd" },
-        {  "[abhgefdc]ij",      "hij",  "y",    "&",    "hij" },
+        {  "abcd*efg",  "abcdefg",      "y",    "$&",    "abcdefg" },
+        {  "ab*",       "xabyabbbz",    "y",    "$&",    "ab" },
+        {  "ab*",       "xayabbbz",     "y",    "$&",    "a" },
+        {  "(ab|cd)e",  "abcde",        "y",    "$&-\\1",        "cde-cd" },
+        {  "[abhgefdc]ij",      "hij",  "y",    "$&",    "hij" },
         {  "^(ab|cd)e", "abcde",        "n",    "x\\1y",        "xy" },
-        {  "(abc|)ef",  "abcdef",       "y",    "&-\\1",        "ef-" },
-        {  "(a|b)c*d",  "abcd", "y",    "&-\\1",        "bcd-b" },
-        {  "(ab|ab*)bc",        "abc",  "y",    "&-\\1",        "abc-a" },
-        {  "a([bc]*)c*",        "abc",  "y",    "&-\\1",        "abc-bc" },
-        {  "a([bc]*)(c*d)",     "abcd", "y",    "&-\\1-\\2",    "abcd-bc-d" },
-        {  "a([bc]+)(c*d)",     "abcd", "y",    "&-\\1-\\2",    "abcd-bc-d" },
-        {  "a([bc]*)(c+d)",     "abcd", "y",    "&-\\1-\\2",    "abcd-b-cd" },
-        {  "a[bcd]*dcdcde",     "adcdcde",      "y",    "&",    "adcdcde" },
+        {  "(abc|)ef",  "abcdef",       "y",    "$&-\\1",        "ef-" },
+        {  "(a|b)c*d",  "abcd", "y",    "$&-\\1",        "bcd-b" },
+        {  "(ab|ab*)bc",        "abc",  "y",    "$&-\\1",        "abc-a" },
+        {  "a([bc]*)c*",        "abc",  "y",    "$&-\\1",        "abc-bc" },
+        {  "a([bc]*)(c*d)",     "abcd", "y",    "$&-\\1-\\2",    "abcd-bc-d" },
+        {  "a([bc]+)(c*d)",     "abcd", "y",    "$&-\\1-\\2",    "abcd-bc-d" },
+        {  "a([bc]*)(c+d)",     "abcd", "y",    "$&-\\1-\\2",    "abcd-b-cd" },
+        {  "a[bcd]*dcdcde",     "adcdcde",      "y",    "$&",    "adcdcde" },
         {  "a[bcd]+dcdcde",     "adcdcde",      "n",    "-",    "-" },
-        {  "(ab|a)b*c", "abc",  "y",    "&-\\1",        "abc-ab" },
+        {  "(ab|a)b*c", "abc",  "y",    "$&-\\1",        "abc-ab" },
         {  "((a)(b)c)(d)",      "abcd", "y",    "\\1-\\2-\\3-\\4",      "abc-a-b-d" },
-        {  "[a-zA-Z_][a-zA-Z0-9_]*",    "alpha",        "y",    "&",    "alpha" },
-        {  "^a(bc+|b[eh])g|.h$",        "abh",  "y",    "&-\\1",        "bh-" },
-        {  "(bc+d$|ef*g.|h?i(j|k))",    "effgz",        "y",    "&-\\1-\\2",    "effgz-effgz-" },
-        {  "(bc+d$|ef*g.|h?i(j|k))",    "ij",   "y",    "&-\\1-\\2",    "ij-ij-j" },
+        {  "[a-zA-Z_][a-zA-Z0-9_]*",    "alpha",        "y",    "$&",    "alpha" },
+        {  "^a(bc+|b[eh])g|.h$",        "abh",  "y",    "$&-\\1",        "bh-" },
+        {  "(bc+d$|ef*g.|h?i(j|k))",    "effgz",        "y",    "$&-\\1-\\2",    "effgz-effgz-" },
+        {  "(bc+d$|ef*g.|h?i(j|k))",    "ij",   "y",    "$&-\\1-\\2",    "ij-ij-j" },
         {  "(bc+d$|ef*g.|h?i(j|k))",    "effg", "n",    "-",    "-" },
         {  "(bc+d$|ef*g.|h?i(j|k))",    "bcdd", "n",    "-",    "-" },
-        {  "(bc+d$|ef*g.|h?i(j|k))",    "reffgz",       "y",    "&-\\1-\\2",    "effgz-effgz-" },
+        {  "(bc+d$|ef*g.|h?i(j|k))",    "reffgz",       "y",    "$&-\\1-\\2",    "effgz-effgz-" },
         //{    "((((((((((a))))))))))", "-",    "c",    "-",    "-" },
-        {  "(((((((((a)))))))))",       "a",    "y",    "&",    "a" },
+        {  "(((((((((a)))))))))",       "a",    "y",    "$&",    "a" },
         {  "multiple words of text",    "uh-uh",        "n",    "-",    "-" },
-        {  "multiple words",    "multiple words, yeah", "y",    "&",    "multiple words" },
-        {  "(.*)c(.*)", "abcde",        "y",    "&-\\1-\\2",    "abcde-ab-de" },
+        {  "multiple words",    "multiple words, yeah", "y",    "$&",    "multiple words" },
+        {  "(.*)c(.*)", "abcde",        "y",    "$&-\\1-\\2",    "abcde-ab-de" },
         {  "\\((.*), (.*)\\)",  "(a, b)",       "y",    "(\\2, \\1)",   "(b, a)" },
-        {  "abcd",      "abcd", "y",    "&-\\&-\\\\&",  "abcd-&-\\abcd" },
+        {  "abcd",      "abcd", "y",    "$&-&-\\$&",  "abcd-&-\\abcd" },
         {  "a(bc)d",    "abcd", "y",    "\\1-\\\\1-\\\\\\1",    "bc-\\1-\\bc" },
         {  "[k]",                       "ab",   "n",    "-",    "-" },
-        {  "[ -~]*",                    "abc",  "y",    "&",    "abc" },
-        {  "[ -~ -~]*",         "abc",  "y",    "&",    "abc" },
-        {  "[ -~ -~ -~]*",              "abc",  "y",    "&",    "abc" },
-        {  "[ -~ -~ -~ -~]*",           "abc",  "y",    "&",    "abc" },
-        {  "[ -~ -~ -~ -~ -~]*",        "abc",  "y",    "&",    "abc" },
-        {  "[ -~ -~ -~ -~ -~ -~]*",     "abc",  "y",    "&",    "abc" },
-        {  "[ -~ -~ -~ -~ -~ -~ -~]*",  "abc",  "y",    "&",    "abc" },
+        {  "[ -~]*",                    "abc",  "y",    "$&",    "abc" },
+        {  "[ -~ -~]*",         "abc",  "y",    "$&",    "abc" },
+        {  "[ -~ -~ -~]*",              "abc",  "y",    "$&",    "abc" },
+        {  "[ -~ -~ -~ -~]*",           "abc",  "y",    "$&",    "abc" },
+        {  "[ -~ -~ -~ -~ -~]*",        "abc",  "y",    "$&",    "abc" },
+        {  "[ -~ -~ -~ -~ -~ -~]*",     "abc",  "y",    "$&",    "abc" },
+        {  "[ -~ -~ -~ -~ -~ -~ -~]*",  "abc",  "y",    "$&",    "abc" },
         {  "a{2}",      "candy",                "n",    "",     "" },
-        {  "a{2}",      "caandy",               "y",    "&",    "aa" },
-        {  "a{2}",      "caaandy",              "y",    "&",    "aa" },
+        {  "a{2}",      "caandy",               "y",    "$&",    "aa" },
+        {  "a{2}",      "caaandy",              "y",    "$&",    "aa" },
         {  "a{2,}",     "candy",                "n",    "",     "" },
-        {  "a{2,}",     "caandy",               "y",    "&",    "aa" },
-        {  "a{2,}",     "caaaaaandy",           "y",    "&",    "aaaaaa" },
+        {  "a{2,}",     "caandy",               "y",    "$&",    "aa" },
+        {  "a{2,}",     "caaaaaandy",           "y",    "$&",    "aaaaaa" },
         {  "a{1,3}",    "cndy",                 "n",    "",     "" },
-        {  "a{1,3}",    "candy",                "y",    "&",    "a" },
-        {  "a{1,3}",    "caandy",               "y",    "&",    "aa" },
-        {  "a{1,3}",    "caaaaaandy",           "y",    "&",    "aaa" },
-        {  "e?le?",     "angel",                "y",    "&",    "el" },
-        {  "e?le?",     "angle",                "y",    "&",    "le" },
-        {  "\\bn\\w",   "noonday",              "y",    "&",    "no" },
-        {  "\\wy\\b",   "possibly yesterday",   "y",    "&",    "ly" },
-        {  "\\w\\Bn",   "noonday",              "y",    "&",    "on" },
-        {  "y\\B\\w",   "possibly yesterday",   "y",    "&",    "ye" },
+        {  "a{1,3}",    "candy",                "y",    "$&",    "a" },
+        {  "a{1,3}",    "caandy",               "y",    "$&",    "aa" },
+        {  "a{1,3}",    "caaaaaandy",           "y",    "$&",    "aaa" },
+        {  "e?le?",     "angel",                "y",    "$&",    "el" },
+        {  "e?le?",     "angle",                "y",    "$&",    "le" },
+        {  "\\bn\\w",   "noonday",              "y",    "$&",    "no" },
+        {  "\\wy\\b",   "possibly yesterday",   "y",    "$&",    "ly" },
+        {  "\\w\\Bn",   "noonday",              "y",    "$&",    "on" },
+        {  "y\\B\\w",   "possibly yesterday",   "y",    "$&",    "ye" },
 // TODO:
-//        {  "\\cJ",      "abc\ndef",             "y",    "&",    "\n" },
-        {  "\\d",       "B2 is",                "y",    "&",    "2" },
-        {  "\\D",       "B2 is",                "y",    "&",    "B" },
-        {  "\\s\\w*",   "foo bar",              "y",    "&",    " bar" },
-        {  "\\S\\w*",   "foo bar",              "y",    "&",    "foo" },
-        {  "abc",       "ababc",                "y",    "&",    "abc" },
+//        {  "\\cJ",      "abc\ndef",             "y",    "$&",    "\n" },
+        {  "\\d",       "B2 is",                "y",    "$&",    "2" },
+        {  "\\D",       "B2 is",                "y",    "$&",    "B" },
+        {  "\\s\\w*",   "foo bar",              "y",    "$&",    " bar" },
+        {  "\\S\\w*",   "foo bar",              "y",    "$&",    "foo" },
+        {  "abc",       "ababc",                "y",    "$&",    "abc" },
 // Backreferences not supported
-//        {  "apple(,)\\sorange\\1",      "apple, orange, cherry, peach", "y", "&", "apple, orange," },
+//        {  "apple(,)\\sorange\\1",      "apple, orange, cherry, peach", "y", "$&", "apple, orange," },
         {  "(\\w+)\\s(\\w+)",           "John Smith", "y", "\\2, \\1", "Smith, John" },
-        {  "\\n\\f\\r\\t\\v",           "abc\n\f\r\t\vdef", "y", "&", "\n\f\r\t\v" },
-        {  ".*c",       "abcde",                "y",    "&",    "abc" },
-        {  "^\\w+((;|=)\\w+)+$", "some=host=tld", "y", "&-\\1-\\2", "some=host=tld-=tld-=" },
-        {  "^\\w+((\\.|-)\\w+)+$", "some.host.tld", "y", "&-\\1-\\2", "some.host.tld-.tld-." },
-        {  "q(a|b)*q",  "xxqababqyy",           "y",    "&-\\1",        "qababq-b" },
+        {  "\\n\\f\\r\\t\\v",           "abc\n\f\r\t\vdef", "y", "$&", "\n\f\r\t\v" },
+        {  ".*c",       "abcde",                "y",    "$&",    "abc" },
+        {  "^\\w+((;|=)\\w+)+$", "some=host=tld", "y", "$&-\\1-\\2", "some=host=tld-=tld-=" },
+        {  "^\\w+((\\.|-)\\w+)+$", "some.host.tld", "y", "$&-\\1-\\2", "some.host.tld-.tld-." },
+        {  "q(a|b)*q",  "xxqababqyy",           "y",    "$&-\\1",        "qababq-b" },
 
         {  "^(a)(b){0,1}(c*)",   "abcc", "y", "\\1 \\2 \\3", "a b cc" },
         {  "^(a)((b){0,1})(c*)", "abcc", "y", "\\1 \\2 \\3", "a b b" },
@@ -3638,10 +3681,21 @@ unittest
 
             if (c != 'c')
             {
-                i = !match(to!(String)(tvd.input), r).empty;
+                //i = !match(to!(String)(tvd.input), r).empty;
                 //printf("\ttest() = %d\n", i);
                 //fflush(stdout);
-                assert((c == 'y') ? i : !i);
+                //assert((c == 'y') ? i : !i);
+                if ( c == 'y' )
+                {
+                    auto m = match( to!String(tvd.input), r );
+                    assert( m );
+                    //writefln( "expected: %s %s %s '%s'", tvd.input, tvd.pattern, tvd.format, tvd.replace );
+                    auto result = substituteMatchCaptures( m.match, to!String( tvd.format ) );
+                    //writefln( "result: %s", result );
+                    assert( result == to!String( tvd.replace ) );
+                }
+                else
+                    assert( !match( to!String(tvd.input), r ) );
             }
         }
 

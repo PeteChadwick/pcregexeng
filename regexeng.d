@@ -791,7 +791,8 @@ private struct RegexParser
         instSave.num = 0;
         ++numCaptures;
 
-        parseRegex( s, reFlags );
+        if ( parseRegex( s, reFlags ) != s.length )
+            throw new Exception( "Failed to parse expression: " ~ to!string(s) );
 
         // If the first instruction is a BOT remove ungreedyStar
         size_t firstInstPos = endUngreedyStar + InstSave.sizeof;
@@ -3389,8 +3390,10 @@ unittest
 // The unit tests below are copied from std.regex, and the following
 // copyright notices apply.
 
-// Notes: Unit tests with backreferences have been commented out as they
-// are not supported at this time.
+// Notes: Unit tests with backreferences have been commented out as
+// they are not supported at this time. The patterns have been
+// modified as $& is used instead of & for substituting the whole
+// match.
 
 /*
  *  Copyright (C) 2000-2005 by Digital Mars, www.digitalmars.com
@@ -3517,8 +3520,7 @@ unittest
         {  "a\\(*b",    "ab",   "y",    "$&",    "ab" },
         {  "a\\(*b",    "a((b", "y",    "$&",    "a((b" },
         {  "a\\\\b",    "a\\b", "y",    "$&",    "a\\b" },
-// TODO:
-//        {  "abc)",      "-",    "c",    "-",    "-" },
+        {  "abc)",      "-",    "c",    "-",    "-" },
         {  "(abc",      "-",    "c",    "-",    "-" },
         {  "((a))",     "abc",  "y",    "$&-\\1-\\2",    "a-a-a" },
         {  "(a)b(c)",   "abc",  "y",    "$&-\\1-\\2",    "abc-a-c" },
@@ -3543,13 +3545,13 @@ unittest
         {  "(^)*",      "-",    "y",    "-",    "-" },
         //{  "(ab|)*",  "-",    "c",    "-",    "-" },
         {  "(ab|)*",    "-",    "y",    "-",    "-" },
-// TODO:
-//        {  ")(",        "-",    "c",    "-",    "-" },
+        {  ")(",        "-",    "c",    "-",    "-" },
         {  "",  "abc",  "y",    "$&",    "" },
         {  "abc",       "",     "n",    "-",    "-" },
         {  "a*",        "",     "y",    "$&",    "" },
         {  "([abc])*d", "abbbcd",       "y",    "$&-\\1",        "abbbcd-c" },
-// TODO: Result is wrong        {  "([abc])*bcd", "abcd",       "y",    "$&-\\1",        "abcd-a" },
+// TODO: Should it be the final capture?
+//        {  "([abc])*bcd", "abcd",       "y",    "$&-\\1",        "abcd-a" },
         {  "a|b|c|d|e", "e",    "y",    "$&",    "e" },
         {  "(a|b|c|d|e)f", "ef",        "y",    "$&-\\1",        "ef-e" },
         //{  "((a*|b))*", "-",  "c",    "-",    "-" },

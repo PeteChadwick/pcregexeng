@@ -2607,7 +2607,14 @@ public class BackTrackEngine
         //ExecState!String state = ExecState!String( 0, startPos, size_t.max, s, captures );
         //execute( state );
         ExecState!String state;
-        execute( 0, startPos, size_t.max,  s, captures, &state );
+        size_t prevPos = size_t.max;
+        if ( startPos != 0 )
+        {
+            prevPos = startPos;
+            rDecode( s, prevPos );
+        }
+
+        execute( 0, startPos, prevPos,  s, captures, &state );
     }
 
     void printProgram()

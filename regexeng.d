@@ -3465,16 +3465,13 @@ unittest
     // Backreference
 
     assert( match( "aabaa123", regex( `(a*)b\1` ) ).captures[0] == "aabaa" );
-    //m = match( "aabaa", btre );
 }
 
 // The unit tests below are copied from std.regex, and the following
 // copyright notices apply.
 
-// Notes: Unit tests with backreferences have been commented out as
-// they are not supported at this time. The patterns have been
-// modified as $& is used instead of & for substituting the whole
-// match.
+// Notes: The patterns have been modified as $& is used instead of &
+// for substituting the whole match.
 
 /*
  *  Copyright (C) 2000-2005 by Digital Mars, www.digitalmars.com

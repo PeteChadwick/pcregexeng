@@ -101,7 +101,8 @@ private // Module only stuff
         WordBoundary,
         LookAround,
         SaveProgress,
-        CheckProgress
+        CheckProgress,
+        BackRef
     }
 
     struct Inst
@@ -186,6 +187,13 @@ private // Module only stuff
         bool positive = true;
         int distance = 0;
         size_t jumpLoc = 0;
+    }
+
+    struct InstBackRef
+    {
+        Inst inst = { REInst.BackRef, 0 };
+        alias inst this;
+        int refNum;
     }
 
     struct InstCharBitmap
@@ -603,6 +611,11 @@ private void printProgram( byte[] program )
             writefln( "CheckProgress" );
             pos += InstCheckProgress.sizeof;
             break;
+
+        case REInst.BackRef:
+            InstBackRef* inst = cast(InstBackRef*)&program[pos];
+            writefln( "BackRef %s", inst.refNum );
+            pos += InstBackRef.sizeof;
         }
     }
 }
@@ -688,6 +701,10 @@ private void enumerateStates( byte[] program, out size_t numStates )
 
         case REInst.CheckProgress:
             pos += InstCheckProgress.sizeof;
+            break;
+
+        case REInst.BackRef:
+            pos += InstBackRef.sizeof;
             break;
         }
     }
@@ -906,6 +923,10 @@ private struct RegexParser
 
             case REInst.CheckProgress:
                 pos += InstCheckProgress.sizeof;
+                break;
+
+            case REInst.BackRef:
+                pos += InstBackRef.sizeof;
                 break;
 
             }
@@ -1801,8 +1822,6 @@ private struct RegexParser
         }
         else if ( c == '\\' ) // escaped character
         {
-            fixedCharStack ~= 1;
-
             if ( s.length == 1 )
             {
                 throw new Exception( "parseAtom error excpected escaped character" ~ to!string(c) );
@@ -1810,7 +1829,26 @@ private struct RegexParser
             decode( s, end ); // Advances end
 
             dchar escChar = decode( s, end );
-            parseEscapedChar( escChar, reFlags );
+            if ( escChar >= '0' && escChar <= '9' )
+            {
+                // Backreference
+                while( end < s.length &&
+                       ( escChar >= '0' && escChar <= '9' ) )
+                {
+                    decode( s, end );
+                }
+                
+                int refNum = to!int( s[startPos..end] );
+
+                mixin( MakeREInst( "InstBackRef", "backRefInst" ) );
+                backRefInst.refNum = refNum;
+                program ~= backRefInstBuf;
+            }
+            else
+            {
+                fixedCharStack ~= 1;
+                parseEscapedChar( escChar, reFlags );
+            }
         }
         else if ( c == '^' ) // BOL or BOT
         {
@@ -2581,6 +2619,33 @@ public class BackTrackEngine
                 //writefln( "CheckProgress %s %s", state_s, state_sPos );
                 return 1;
                 //break;
+
+            case REInst.BackRef:
+                InstBackRef* instBackRef = cast(InstBackRef*)inst;
+                size_t captureIndex = 2*instBackRef.refNum;
+                if ( state_captures[ captureIndex ] == size_t.max ||
+                     state_captures[ captureIndex + 1] == size_t.max )
+                {
+                    return 0;
+                }
+
+                // Note: Should probably parameterise on char type rather than String
+                String captureStr = state_s[ state_captures[ captureIndex ] .. state_captures[ captureIndex+1 ] ];
+
+                if ( (state_sPos + captureStr.length) <= state_s.length )
+                {
+                    if ( state_s[state_sPos..state_sPos+captureStr.length] == captureStr )
+                    {
+                        state_sPos = state_sPos + captureStr.length;
+                        state_prevSPos = state_sPos;
+                        rDecode( state_s, state_prevSPos );
+                    }
+                    else
+                        return 0;
+                }
+
+                state_pc += InstBackRef.sizeof;
+                break;
             }
         }
 
@@ -2781,6 +2846,9 @@ public class LockStepEngine
                     case REInst.CheckProgress:
                         _executingThreads.pc = pc + InstSaveProgress.sizeof;
                         break;
+
+                    case REInst.BackRef:
+                        throw new Exception( "BackRef not supported by lockstep engine" );
                     }
                 }
                 else // Pop instruction we've already done
@@ -2903,6 +2971,7 @@ public class LockStepEngine
                 case REInst.EOT:
                 case REInst.Match:
                 case REInst.WordBoundary:
+                case REInst.BackRef:
                     throw new Exception( "Unexpected instruction" );
                 case REInst.LookAround:
                     throw new Exception( "LookAround not supported by lockstep engine" );
@@ -3392,6 +3461,11 @@ unittest
     // Flags
     assert( match( "A", regex( "a", "i" ) ) );
     assert( match( "yuck\nyum\nyuck", regex( "^yum$", "m" ) ) );
+
+    // Backreference
+
+    assert( match( "aabaa123", regex( `(a*)b\1` ) ).captures[0] == "aabaa" );
+    //m = match( "aabaa", btre );
 }
 
 // The unit tests below are copied from std.regex, and the following
@@ -3461,8 +3535,7 @@ unittest
     };
 
     static TestVectors tv[] = [
-// backreferences not supported
-//        {  "(a)\\1",    "abaab","y",    "$&",    "aa" },
+        {  "(a)\\1",    "abaab","y",    "$&",    "aa" },
         {  "abc",       "abc",  "y",    "$&",    "abc" },
         {  "abc",       "xbc",  "n",    "-",    "-" },
         {  "abc",       "axc",  "n",    "-",    "-" },
@@ -3626,8 +3699,7 @@ unittest
         {  "\\s\\w*",   "foo bar",              "y",    "$&",    " bar" },
         {  "\\S\\w*",   "foo bar",              "y",    "$&",    "foo" },
         {  "abc",       "ababc",                "y",    "$&",    "abc" },
-// Backreferences not supported
-//        {  "apple(,)\\sorange\\1",      "apple, orange, cherry, peach", "y", "$&", "apple, orange," },
+        {  "apple(,)\\sorange\\1",      "apple, orange, cherry, peach", "y", "$&", "apple, orange," },
         {  "(\\w+)\\s(\\w+)",           "John Smith", "y", "\\2, \\1", "Smith, John" },
         {  "\\n\\f\\r\\t\\v",           "abc\n\f\r\t\vdef", "y", "$&", "\n\f\r\t\v" },
         {  ".*c",       "abcde",                "y",    "$&",    "abc" },

@@ -2385,19 +2385,32 @@ public class BackTrackEngine
     {
         size_t pc;
         size_t sPos;
-        size_t prevSPos;
         String s;
         size_t[] captures;
     }
+
+    private size_t getPrevPos(String)( String s, size_t pos )
+    {
+        size_t prevPos;
+        
+        if ( pos == 0 )
+            return size_t.max;
+        else
+        {
+            prevPos = pos;
+            rDecode( s, prevPos );
+            return prevPos;
+        }
+    }
     
-    int execute(String)( size_t state_pc, size_t state_sPos, size_t state_prevSPos,
+    int execute(String)( size_t state_pc, size_t state_sPos, 
                          String state_s, size_t[] state_captures, ExecState!(String)* execState )
     {
-        auto program = _re.program;
+        //auto program = _re.program;
 
         for( ;; )
         {
-            Inst* inst = cast(Inst*)&program[state_pc];
+            Inst* inst = cast(Inst*)&_re.program[state_pc];
 
             final switch( inst.type )
             {
@@ -2406,10 +2419,10 @@ public class BackTrackEngine
                     return 0;
 
                 // get next character and advance state_sPos
-                state_prevSPos = state_sPos;
                 dchar thisChar = decode( state_s, state_sPos );
-                auto instChar = cast(InstChar*)inst;
-                if ( instChar.c != thisChar )
+                //auto instChar = cast(InstChar*)inst;
+                //if ( instChar.c != thisChar )
+                if ( (cast(InstChar*)inst).c != thisChar )
                     return 0;
 
                 state_pc += InstChar.sizeof;
@@ -2419,7 +2432,6 @@ public class BackTrackEngine
                 if ( state_sPos == state_s.length )
                     return 0;
                 // get next character and advance state_sPos
-                state_prevSPos = state_sPos;
                 dchar thisChar = decode( state_s, state_sPos );
                 auto instIChar = cast(InstIChar*)inst;
                 if ( instIChar.c != tolower(thisChar) )
@@ -2433,7 +2445,6 @@ public class BackTrackEngine
                 if ( state_sPos == state_s.length )
                     return 0;
                 // get next character and advance state_sPos
-                state_prevSPos = state_sPos;
                 dchar thisChar = decode( state_s, state_sPos );
                 state_pc += InstAnyChar.sizeof;
 
@@ -2444,7 +2455,6 @@ public class BackTrackEngine
                 if ( state_sPos == state_s.length )
                     return 0;
                 // get next character and advance state_sPos
-                state_prevSPos = state_sPos;
                 dchar thisChar = decode( state_s, state_sPos );
 
                 if ( ! ( thisChar >= instCharRange.span.start &&
@@ -2460,7 +2470,6 @@ public class BackTrackEngine
                 if ( state_sPos == state_s.length )
                     return 0;
                 // get next character and advance state_sPos
-                state_prevSPos = state_sPos;
                 dchar thisChar = tolower( decode( state_s, state_sPos ) );
 
                 if ( ! ( thisChar >= instICharRange.span.start &&
@@ -2476,7 +2485,6 @@ public class BackTrackEngine
                 if ( state_sPos == state_s.length )
                     return 0;
                 // get next character and advance state_sPos
-                state_prevSPos = state_sPos;
                 dchar thisChar = decode( state_s, state_sPos );
 
                 if ( !(*instCharBitmap)[thisChar] )
@@ -2493,7 +2501,7 @@ public class BackTrackEngine
                 state_captures[instSave.num] = state_sPos;
 
                 state_pc += InstSave.sizeof;
-                if ( execute( state_pc, state_sPos, state_prevSPos, state_s, state_captures, execState ) )
+                if ( execute( state_pc, state_sPos, state_s, state_captures, execState ) )
                     return 1;
 
                 // Restore old capture if thread has failed
@@ -2504,7 +2512,7 @@ public class BackTrackEngine
 
             case REInst.Split:
                 auto instSplit = cast(InstSplit*)inst;
-                if ( execute( instSplit.locPref, state_sPos, state_prevSPos, state_s, state_captures, execState ) )
+                if ( execute( instSplit.locPref, state_sPos, state_s, state_captures, execState ) )
                     return 1;
                 state_pc = instSplit.locSec;
 
@@ -2520,7 +2528,7 @@ public class BackTrackEngine
                 return 1;
 
             case REInst.BOL:
-                if ( !isNewLineChar( state_s, state_prevSPos ) )
+                if ( !isNewLineChar( state_s, getPrevPos( state_s, state_sPos ) ) )
                     return 0;
 
                 state_pc += InstBOL.sizeof;
@@ -2549,11 +2557,13 @@ public class BackTrackEngine
 
             case REInst.WordBoundary:
                 bool result=false;
-                        
-                if( isWordChar( state_s, state_prevSPos ) &&
+                 
+                size_t prevSPos = getPrevPos( state_s, state_sPos );
+       
+                if( isWordChar( state_s, prevSPos ) &&
                     !isWordChar( state_s, state_sPos ) )
                     result = true;
-                else if ( !isWordChar( state_s, state_prevSPos ) &&
+                else if ( !isWordChar( state_s, prevSPos ) &&
                           isWordChar( state_s, state_sPos ) )
                     result = true;
 
@@ -2571,7 +2581,8 @@ public class BackTrackEngine
                 
                 if ( instLookAround.ahead )
                 {
-                    if ( execute( state_pc, state_sPos, state_prevSPos, state_s, state_captures, execState ) != instLookAround.positive )
+                    if ( execute( state_pc, state_sPos, state_s,
+                                  state_captures, execState ) != instLookAround.positive )
                         return 0;
 
                     state_pc = instLookAround.jumpLoc;
@@ -2579,19 +2590,14 @@ public class BackTrackEngine
                 else
                 {
                     size_t shiftedSPos = state_sPos;
-                    size_t shiftedPrevSPos;
 
                     for( int i=0; i<instLookAround.distance; ++i )
                     {
                         if( !rDecode( state_s, shiftedSPos ) )
                             return false;
                     }
-                    if ( shiftedSPos == 0 )
-                        shiftedPrevSPos = size_t.max;
-                    else
-                        shiftedPrevSPos = shiftedSPos - 1;
                     
-                    if ( execute( state_pc, shiftedSPos, shiftedPrevSPos, state_s, state_captures, execState )
+                    if ( execute( state_pc, shiftedSPos, state_s, state_captures, execState )
                          != instLookAround.positive )
                         return 0;
                     state_pc = instLookAround.jumpLoc;
@@ -2601,14 +2607,13 @@ public class BackTrackEngine
 
             case REInst.SaveProgress:
                 state_pc += InstSaveProgress.sizeof;
-                int result = execute( state_pc, state_sPos, state_prevSPos, state_s, state_captures, execState );
+                int result = execute( state_pc, state_sPos, state_s, state_captures, execState );
                 if ( result == 0 || state_sPos == execState.sPos )
                 {
                     return 0;
                 }
                 state_pc = execState.pc;
                 state_sPos = execState.sPos;
-                state_prevSPos = execState.prevSPos;
 
                 break;
                 
@@ -2616,7 +2621,6 @@ public class BackTrackEngine
                 state_pc += InstCheckProgress.sizeof;
                 execState.sPos = state_sPos;
                 execState.pc = state_pc;
-                execState.prevSPos = state_prevSPos;
                 //writefln( "CheckProgress %s %s", state_s, state_sPos );
                 return 1;
                 //break;
@@ -2644,8 +2648,6 @@ public class BackTrackEngine
                     if ( state_s[state_sPos..state_sPos+captureStr.length] == captureStr )
                     {
                         state_sPos = state_sPos + captureStr.length;
-                        state_prevSPos = state_sPos;
-                        rDecode( state_s, state_prevSPos );
                     }
                     else
                         return 0;
@@ -2679,14 +2681,8 @@ public class BackTrackEngine
         //ExecState!String state = ExecState!String( 0, startPos, size_t.max, s, captures );
         //execute( state );
         ExecState!String state;
-        size_t prevPos = size_t.max;
-        if ( startPos != 0 )
-        {
-            prevPos = startPos;
-            rDecode( s, prevPos );
-        }
 
-        execute( 0, startPos, prevPos,  s, captures, &state );
+        execute( 0, startPos, s, captures, &state );
     }
 
     void printProgram()

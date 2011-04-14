@@ -2591,7 +2591,8 @@ public class BackTrackEngine
                     else
                         shiftedPrevSPos = shiftedSPos - 1;
                     
-                    if ( execute( state_pc, shiftedSPos, shiftedPrevSPos, state_s, state_captures, execState ) != instLookAround.positive )
+                    if ( execute( state_pc, shiftedSPos, shiftedPrevSPos, state_s, state_captures, execState )
+                         != instLookAround.positive )
                         return 0;
                     state_pc = instLookAround.jumpLoc;
                 }
@@ -2622,11 +2623,17 @@ public class BackTrackEngine
 
             case REInst.BackRef:
                 InstBackRef* instBackRef = cast(InstBackRef*)inst;
+                
                 size_t captureIndex = 2*instBackRef.refNum;
-                if ( state_captures[ captureIndex ] == size_t.max ||
+                if ( captureIndex >= state_captures.length ||
+                     state_captures[ captureIndex ] == size_t.max ||
                      state_captures[ captureIndex + 1] == size_t.max )
                 {
-                    return 0;
+                    // Treat as an empty capture rather than a failure
+                    state_pc += InstBackRef.sizeof;
+                    break;
+                    
+                    //return 0;
                 }
 
                 // Note: Should probably parameterise on char type rather than String
@@ -3465,6 +3472,8 @@ unittest
     // Backreference
 
     assert( match( "aabaa123", regex( `(a*)b\1` ) ).captures[0] == "aabaa" );
+    assert( match( "aabaa123", regex( `(a*)b\3` ) ).captures[0] == "aab" );
+    assert( match( "aabaa123", regex( `(a*)(c)?b\2` ) ).captures[0] == "aab" );
 }
 
 // The unit tests below are copied from std.regex, and the following

@@ -111,6 +111,7 @@ private // Module only stuff
         // Statenumber is used to keep track of generations, it's not
         // used by the backtracking engine
         size_t stateNumber;
+        //size_t counter;
     }
 
     
@@ -183,10 +184,10 @@ private // Module only stuff
     {
         Inst inst = { REInst.LookAround, 0 };
         alias inst this;
-        bool ahead = true;
-        bool positive = true;
         int distance = 0;
         size_t jumpLoc = 0;
+        bool ahead = true;
+        bool positive = true;
     }
 
     struct InstBackRef
@@ -488,6 +489,7 @@ private void printProgram( byte[] program )
     size_t pos;
     while( pos < program.length )
     {
+        //writef( "%s\t%s\t", pos, (cast(Inst*)&program[pos]).counter );
         writef( "%s\t", pos );
         REInst* instType = cast(REInst*)&program[pos];
         final switch( *instType )
@@ -598,7 +600,7 @@ private void printProgram( byte[] program )
 
         case REInst.LookAround:
             InstLookAround* inst = cast(InstLookAround*)&program[pos];
-            writefln( "LookAround ahead:%s positive:%s distance:%s", inst.ahead, inst.positive, inst.distance );
+            writefln( "LookAround ahead:%s positive:%s distance:%s jumploc:%s", inst.ahead, inst.positive, inst.distance, inst.jumpLoc );
             pos += InstLookAround.sizeof;
             break;
 
@@ -627,6 +629,7 @@ private void enumerateStates( byte[] program, out size_t numStates )
     {
         Inst* inst = cast(Inst*)&program[pos];
         inst.stateNumber = numStates;
+        //inst.counter = 0;
         ++numStates;
 
         final switch( inst.type )
@@ -1431,6 +1434,8 @@ private struct RegexParser
             mixin( MakeREInst( "InstMatch", "matchInst" ) );
 
             program ~= matchInstBuf;
+            // Update pointer, as program may have reallocated
+            lookAroundInst = cast(InstLookAround*)&program[lookAroundOffset];
             lookAroundInst.jumpLoc = program.length;
         }
 
@@ -2406,11 +2411,12 @@ public class BackTrackEngine
     int execute(String)( size_t state_pc, size_t state_sPos, 
                          String state_s, size_t[] state_captures, ExecState!(String)* execState )
     {
-        //auto program = _re.program;
+        byte[] program = _re.program;
 
         for( ;; )
         {
-            Inst* inst = cast(Inst*)&_re.program[state_pc];
+            Inst* inst = cast(Inst*)&program[state_pc];
+            //++inst.counter;
 
             final switch( inst.type )
             {
@@ -2481,9 +2487,11 @@ public class BackTrackEngine
                 break;
 
             case REInst.CharBitmap:
-                auto instCharBitmap = cast(InstCharBitmap*)inst;
                 if ( state_sPos == state_s.length )
                     return 0;
+
+                auto instCharBitmap = cast(InstCharBitmap*)inst;
+
                 // get next character and advance state_sPos
                 dchar thisChar = decode( state_s, state_sPos );
 
@@ -2608,7 +2616,7 @@ public class BackTrackEngine
             case REInst.SaveProgress:
                 state_pc += InstSaveProgress.sizeof;
                 int result = execute( state_pc, state_sPos, state_s, state_captures, execState );
-                if ( result == 0 || state_sPos == execState.sPos )
+                if ( result == 0 || state_sPos >= execState.sPos || execState.sPos == size_t.max )
                 {
                     return 0;
                 }

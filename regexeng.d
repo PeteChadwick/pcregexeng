@@ -289,6 +289,7 @@ private // Module only stuff
     {
         Inst inst = { REInst.SaveProgress };
         alias inst this;
+        size_t num;
     }
 
     struct InstCheckProgress
@@ -605,7 +606,8 @@ private void printProgram( byte[] program )
             break;
 
         case REInst.SaveProgress:
-            writefln( "SaveProgress" );
+            auto inst = cast(InstSaveProgress*)&program[pos];
+            writefln( "SaveProgress %s", inst.num );
             pos += InstSaveProgress.sizeof;
             break;
 
@@ -839,6 +841,7 @@ private struct RegexParser
     byte[] program;
 
     size_t numCaptures=0;
+    size_t numProgress=0;
     size_t[] parserCaptureStack;
 
     void fixOffsets( byte[] prog, size_t pos, int shift )
@@ -1056,6 +1059,7 @@ private struct RegexParser
                 isGreedy = false;
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
             mixin( MakeREInst( "InstSaveProgress", "saveProgressInst" ) );
+            saveProgressInst.num = numProgress++;
             mixin( MakeREInst( "InstCheckProgress", "checkProgressInst" ) );
 
             splitInst.locPref = progAtomStart + InstSplit.sizeof;
@@ -1100,6 +1104,7 @@ private struct RegexParser
 
             mixin( MakeREInst( "InstSplit", "splitInst" ) );
             mixin( MakeREInst( "InstSaveProgress", "saveProgressInst" ) );
+            saveProgressInst.num = numProgress++;
             mixin( MakeREInst( "InstCheckProgress", "checkProgressInst" ) );
 
             splitInst.locPref = progAtomStart;
@@ -1259,6 +1264,7 @@ private struct RegexParser
             {
                 mixin( MakeREInst( "InstSplit", "splitInst" ) );
                 mixin( MakeREInst( "InstSaveProgress", "saveProgressInst" ) );
+                saveProgressInst.num = numProgress++;
                 mixin( MakeREInst( "InstCheckProgress", "checkProgressInst" ) );
                 mixin( MakeREInst( "InstJump", "jumpInst" ) );
 
@@ -2386,12 +2392,21 @@ public class BackTrackEngine
         _re = re;
     }
 
+    // Must unwind the stack, but this subverts the
+    // failure of the save instruction
+    // Instead of SaveProgress/CheckProgress,
+    // just have a progress instruciton, check and save progress at instruction offset
+    // if it fails, reset to 0 because the thread is dead?
+
     private struct ExecState(String)
     {
         size_t pc;
         size_t sPos;
-        String s;
-        size_t[] captures;
+        size_t instState;
+        size_t data;
+        // TODO: Use a slice, and allocate memory dynamically if it doesn't fit
+        // in the available space
+        size_t[128] progress;
     }
 
     private size_t getPrevPos(String)( String s, size_t pos )
@@ -2614,24 +2629,23 @@ public class BackTrackEngine
                 break;
 
             case REInst.SaveProgress:
-                state_pc += InstSaveProgress.sizeof;
-                int result = execute( state_pc, state_sPos, state_s, state_captures, execState );
-                if ( result == 0 || state_sPos >= execState.sPos || execState.sPos == size_t.max )
+                auto instSaveProgress = cast(InstSaveProgress*)inst;
+
+                if ( execState.progress[instSaveProgress.num] == state_sPos )
                 {
+                    execState.progress[instSaveProgress.num] = -1;
                     return 0;
                 }
-                state_pc = execState.pc;
-                state_sPos = execState.sPos;
+                else
+                    execState.progress[instSaveProgress.num] = state_sPos;
+
+                state_pc += InstSaveProgress.sizeof;
 
                 break;
                 
             case REInst.CheckProgress:
                 state_pc += InstCheckProgress.sizeof;
-                execState.sPos = state_sPos;
-                execState.pc = state_pc;
-                //writefln( "CheckProgress %s %s", state_s, state_sPos );
-                return 1;
-                //break;
+                break;
 
             case REInst.BackRef:
                 InstBackRef* instBackRef = cast(InstBackRef*)inst;
@@ -2689,6 +2703,7 @@ public class BackTrackEngine
         //ExecState!String state = ExecState!String( 0, startPos, size_t.max, s, captures );
         //execute( state );
         ExecState!String state;
+        state.progress[] = -1;
 
         execute( 0, startPos, s, captures, &state );
     }
@@ -2855,7 +2870,7 @@ public class LockStepEngine
                         break;
                         
                     case REInst.CheckProgress:
-                        _executingThreads.pc = pc + InstSaveProgress.sizeof;
+                        _executingThreads.pc = pc + InstCheckProgress.sizeof;
                         break;
 
                     case REInst.BackRef:
@@ -2993,7 +3008,7 @@ public class LockStepEngine
                     break;
                     
                 case REInst.CheckProgress:
-                    _executingThreads.pc = pc + InstSaveProgress.sizeof;
+                    _executingThreads.pc = pc + InstCheckProgress.sizeof;
                     break;
                 }
             }

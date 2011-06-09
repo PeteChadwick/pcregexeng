@@ -1997,12 +1997,18 @@ public struct RegexSingleMatch(String)
     public void setNumCaptures( int numCaptures )
     {
         _numCaptures = numCaptures;
-        _captures.length = numCaptures * 2;
+        size_t capturesLength = numCaptures *2;
+        // if ( _staticCaptures.length <= capturesLength )
+        //     _captures = _staticCaptures[0..capturesLength];
+        // else
+            _captures.length = capturesLength;
     }
 
     private size_t _numCaptures;
     private String _captureString;
     private size_t _captures[];
+    // Try avoiding dynamic allocation if possible
+    //private size_t[64] _staticCaptures;
 
     bool opCast(T)() if (is(T == bool))
     {
@@ -2426,7 +2432,8 @@ public class BackTrackEngine
     }
     
     int execute(String)( size_t state_pc, size_t state_sPos, 
-                         String state_s, size_t[] state_captures, ExecState!(String)* execState )
+                         String state_s, size_t[] state_captures,
+                         size_t[] state_progress )
     {
         byte[] program = _re.program;
 
@@ -2526,7 +2533,7 @@ public class BackTrackEngine
                 state_captures[instSave.num] = state_sPos;
 
                 state_pc += InstSave.sizeof;
-                if ( execute( state_pc, state_sPos, state_s, state_captures, execState ) )
+                if ( execute( state_pc, state_sPos, state_s, state_captures, state_progress ) )
                     return 1;
 
                 // Restore old capture if thread has failed
@@ -2537,7 +2544,7 @@ public class BackTrackEngine
 
             case REInst.Split:
                 auto instSplit = cast(InstSplit*)inst;
-                if ( execute( instSplit.locPref, state_sPos, state_s, state_captures, execState ) )
+                if ( execute( instSplit.locPref, state_sPos, state_s, state_captures, state_progress ) )
                     return 1;
                 state_pc = instSplit.locSec;
 
@@ -2607,7 +2614,7 @@ public class BackTrackEngine
                 if ( instLookAround.ahead )
                 {
                     if ( execute( state_pc, state_sPos, state_s,
-                                  state_captures, execState ) != instLookAround.positive )
+                                  state_captures, state_progress ) != instLookAround.positive )
                         return 0;
 
                     state_pc = instLookAround.jumpLoc;
@@ -2622,7 +2629,7 @@ public class BackTrackEngine
                             return false;
                     }
                     
-                    if ( execute( state_pc, shiftedSPos, state_s, state_captures, execState )
+                    if ( execute( state_pc, shiftedSPos, state_s, state_captures, state_progress )
                          != instLookAround.positive )
                         return 0;
                     state_pc = instLookAround.jumpLoc;
@@ -2633,18 +2640,18 @@ public class BackTrackEngine
             case REInst.SaveProgress:
                 auto instSaveProgress = cast(InstSaveProgress*)inst;
 
-                if ( execState.progress[instSaveProgress.num] == state_sPos )
+                if ( state_progress[instSaveProgress.num] == state_sPos )
                     return 0;
 
-                size_t oldProgress = execState.progress[instSaveProgress.num];
-                execState.progress[instSaveProgress.num] = state_sPos;
+                size_t oldProgress = state_progress[instSaveProgress.num];
+                state_progress[instSaveProgress.num] = state_sPos;
 
                 state_pc += InstSaveProgress.sizeof;
-                if ( execute( state_pc, state_sPos, state_s, state_captures, execState ) )
+                if ( execute( state_pc, state_sPos, state_s, state_captures, state_progress ) )
                     return 1;
 
                 // restore old progress if thread failed
-                execState.progress[instSaveProgress.num] = oldProgress;
+                state_progress[instSaveProgress.num] = oldProgress;
                 return 0;
 
                 break;
@@ -2706,12 +2713,16 @@ public class BackTrackEngine
         assert( captures.length >= _re.numCaptures );
 
         captures[] = size_t.max;
+        size_t[64] staticProgress;
+        size_t[] progress = staticProgress;
+        if ( _re.numProgress > staticProgress.length )
+            progress.length = _re.numProgress;
         //ExecState!String state = ExecState!String( 0, startPos, size_t.max, s, captures );
         //execute( state );
-        ExecState!String state;
-        state.progress[] = -1;
+        //ExecState!String state;
+        progress[] = -1;
 
-        execute( 0, startPos, s, captures, &state );
+        execute( 0, startPos, s, captures, progress );
     }
 
     void printProgram()
@@ -3150,6 +3161,7 @@ public class Regex
     byte[] program;
     size_t numStates;
     size_t numCaptures;
+    size_t numProgress;
 
     // No template constructors for classes
     // wstring or dstring constructor results in argument matching error
@@ -3203,6 +3215,7 @@ public class Regex
         auto parser = RegexParser( s, reFlags );
         program = parser.program;
         numCaptures = parser.numCaptures;
+        numProgress = parser.numProgress;
         enumerateStates( program, numStates );
     }
 

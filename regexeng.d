@@ -56,6 +56,8 @@ import std.typecons;
 import std.format;
 import std.ctype;
 
+import std.exception;
+
 /*
   Parser
 
@@ -2632,14 +2634,18 @@ public class BackTrackEngine
                 auto instSaveProgress = cast(InstSaveProgress*)inst;
 
                 if ( execState.progress[instSaveProgress.num] == state_sPos )
-                {
-                    execState.progress[instSaveProgress.num] = -1;
                     return 0;
-                }
-                else
-                    execState.progress[instSaveProgress.num] = state_sPos;
+
+                size_t oldProgress = execState.progress[instSaveProgress.num];
+                execState.progress[instSaveProgress.num] = state_sPos;
 
                 state_pc += InstSaveProgress.sizeof;
+                if ( execute( state_pc, state_sPos, state_s, state_captures, execState ) )
+                    return 1;
+
+                // restore old progress if thread failed
+                execState.progress[instSaveProgress.num] = oldProgress;
+                return 0;
 
                 break;
                 
